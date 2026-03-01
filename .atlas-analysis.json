@@ -1,0 +1,147 @@
+{
+  "projectType": "framework",
+  "projectName": "Tiny Claw",
+  "projectDescription": "A native autonomous AI agent framework with plugin architecture, self-improving memory, and smart routing.",
+  "theme": "aspen",
+  "primaryColor": "#31373D",
+  "lightColor": "#F3F4F6",
+  "darkColor": "#1F2937",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/plugin-system",
+              "concepts/memory-system",
+              "concepts/heartware",
+              "concepts/delegation",
+              "concepts/smart-routing",
+              "concepts/security"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/setup",
+              "guides/configuration",
+              "guides/cli-commands",
+              "guides/working-with-channels",
+              "guides/provider-management"
+            ]
+          },
+          {
+            "group": "Plugin Development",
+            "pages": [
+              "plugins/overview",
+              "plugins/channel-plugins",
+              "plugins/provider-plugins",
+              "plugins/tool-plugins",
+              "plugins/publishing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Packages",
+            "pages": [
+              "api/core",
+              "api/types",
+              "api/config",
+              "api/heartware",
+              "api/memory",
+              "api/delegation",
+              "api/router",
+              "api/compactor",
+              "api/shield",
+              "api/learning"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/sandbox",
+              "api/shell",
+              "api/secrets",
+              "api/plugins",
+              "api/logger",
+              "api/intercom",
+              "api/queue"
+            ]
+          },
+          {
+            "group": "Built-in Plugins",
+            "pages": [
+              "api/plugins/channel-discord",
+              "api/plugins/channel-friends",
+              "api/plugins/ollama-provider"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Community",
+        "groups": [
+          {
+            "group": "Resources",
+            "pages": [
+              "community/contributing",
+              "community/code-of-conduct",
+              "community/changelog",
+              "community/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Plugin architecture with channels, providers, and tools",
+    "Self-improving adaptive memory with episodic storage and temporal decay",
+    "Heartware personality system with SOUL.md and IDENTITY.md",
+    "Smart routing with 8-dimension query classification",
+    "Sub-agent delegation with autonomous orchestration",
+    "SHIELD.md runtime enforcement for security",
+    "4-layer context compaction pipeline",
+    "Discord-like web UI with SSE streaming",
+    "Bun-native runtime for performance",
+    "Built-in Ollama Cloud provider with free tier"
+  ],
+  "publicApiSurface": [
+    "tinyclaw CLI (setup, start, config, backup, purge, seed)",
+    "@tinyclaw/core - Core agent runtime and loop",
+    "@tinyclaw/types - TypeScript interfaces and types",
+    "@tinyclaw/config - Configuration management",
+    "@tinyclaw/heartware - Personality and self-configuration system",
+    "@tinyclaw/memory - Adaptive memory engine (episodic + FTS5)",
+    "@tinyclaw/delegation - Sub-agent orchestration",
+    "@tinyclaw/router - Multi-provider LLM routing",
+    "@tinyclaw/compactor - Context compaction engine",
+    "@tinyclaw/shield - Runtime SHIELD.md enforcement",
+    "@tinyclaw/learning - Behavioral pattern detection",
+    "@tinyclaw/sandbox - Bun Worker code execution",
+    "@tinyclaw/shell - Controlled shell execution",
+    "@tinyclaw/secrets - Encrypted secrets management",
+    "@tinyclaw/plugins - Plugin discovery and loading",
+    "@tinyclaw/logger - Singleton logger",
+    "@tinyclaw/intercom - Pub/sub inter-agent communication",
+    "@tinyclaw/queue - Per-session message locking queue",
+    "ChannelPlugin interface",
+    "ProviderPlugin interface",
+    "ToolsPlugin interface"
+  ]
+}
