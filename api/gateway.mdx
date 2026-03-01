@@ -1,0 +1,229 @@
+---
+title: "@tinyclaw/gateway"
+description: "Outbound messaging gateway that routes proactive messages from the agent system to users across channels."
+---
+
+# @tinyclaw/gateway
+
+The outbound gateway routes proactive messages from the agent system (Pulse, Intercom, background tasks) to users across channels. Each channel plugin registers a sender with a userId prefix (e.g. `discord`, `friend`, `web`), and the gateway resolves the prefix to dispatch messages to the correct channel.
+
+## Installation
+
+```bash
+bun add @tinyclaw/gateway
+```
+
+## Overview
+
+**Architecture:**
+```
+Pulse/Intercom/Agent
+  → gateway.send(userId, message)
+    → resolve prefix from userId
+      → channelSender.send(userId, message)
+        → Discord DM / Web SSE / Friends push
+```
+
+**Features:**
+- Prefix-based channel routing
+- Broadcast to all registered channels
+- Graceful handling of unregistered channels
+- Delivery result tracking
+- Zero external dependencies
+
+## API Reference
+
+### `createGateway()`
+
+Create an outbound gateway instance.
+
+**Returns:** `OutboundGateway` - A fully functional gateway ready for channel registration.
+
+```typescript
+import { createGateway } from '@tinyclaw/gateway';
+
+const gateway = createGateway();
+
+// Register channels during boot
+gateway.register('web', webSender);
+gateway.register('discord', discordSender);
+
+// Send a proactive message
+await gateway.send('web:owner', {
+  content: 'Your background task is complete!',
+  priority: 'normal',
+  source: 'background_task',
+});
+```
+
+### OutboundGateway Interface
+
+<ParamField path="register" type="(prefix: string, sender: ChannelSender) => void">
+  Register a channel sender for a given userId prefix.
+  
+  **Parameters:**
+  - `prefix` - Channel prefix (e.g. 'discord', 'web', 'friend')
+  - `sender` - ChannelSender implementation
+</ParamField>
+
+<ParamField path="unregister" type="(prefix: string) => void">
+  Unregister a channel sender (e.g. during shutdown).
+</ParamField>
+
+<ParamField path="send" type="(userId: string, message: OutboundMessage) => Promise<OutboundDeliveryResult>">
+  Send a message to a specific user. Resolves the userId prefix and dispatches to the correct channel.
+  
+  **UserId format:** `"prefix:identifier"` (e.g. `"discord:123456"`, `"web:owner"`)
+</ParamField>
+
+<ParamField path="broadcast" type="(message: OutboundMessage) => Promise<OutboundDeliveryResult[]>">
+  Broadcast a message to all registered channels. Each channel decides how to handle the broadcast.
+</ParamField>
+
+<ParamField path="getRegisteredChannels" type="() => string[]">
+  Get all registered channel prefixes.
+</ParamField>
+
+## Type Definitions
+
+### OutboundMessage
+
+```typescript
+interface OutboundMessage {
+  content: string;           // Message content to deliver
+  priority: OutboundPriority; // 'urgent' | 'normal' | 'low'
+  source: OutboundSource;     // What triggered this message
+  metadata?: Record<string, unknown>; // Optional metadata
+}
+```
+
+### OutboundDeliveryResult
+
+```typescript
+interface OutboundDeliveryResult {
+  success: boolean;    // Whether delivery succeeded
+  channel: string;     // The channel prefix that handled delivery
+  userId: string;      // The target userId
+  error?: string;      // Error message if delivery failed
+}
+```
+
+### ChannelSender
+
+```typescript
+interface ChannelSender {
+  readonly name: string; // Channel name (for logging)
+  send(userId: string, message: OutboundMessage): Promise<void>;
+  broadcast?(message: OutboundMessage): Promise<void>; // Optional
+}
+```
+
+## Usage Examples
+
+### Basic Setup
+
+```typescript
+import { createGateway } from '@tinyclaw/gateway';
+
+const gateway = createGateway();
+
+// Register channels
+const webSender: ChannelSender = {
+  name: 'Web',
+  async send(userId, message) {
+    // Send via SSE to web UI
+    sseManager.send(userId, message);
+  },
+};
+
+gateway.register('web', webSender);
+```
+
+### Sending Messages
+
+```typescript
+// Send to specific user
+const result = await gateway.send('discord:123456', {
+  content: 'Your background research is complete!',
+  priority: 'normal',
+  source: 'background_task',
+  metadata: { taskId: 'abc123' },
+});
+
+if (result.success) {
+  console.log(`Delivered via ${result.channel}`);
+} else {
+  console.error(`Delivery failed: ${result.error}`);
+}
+```
+
+### Broadcasting
+
+```typescript
+// Broadcast to all channels
+const results = await gateway.broadcast({
+  content: 'System maintenance in 5 minutes',
+  priority: 'urgent',
+  source: 'system',
+});
+
+console.log(`Delivered to ${results.filter(r => r.success).length} channels`);
+```
+
+## Error Handling
+
+The gateway gracefully handles:
+
+- **Invalid userId format** - Returns error result
+- **Unregistered channel** - Returns error result with appropriate message
+- **Channel sender errors** - Catches errors and returns delivery failure
+
+## Integration with Other Systems
+
+### Pulse Jobs
+
+```typescript
+import { createPulseScheduler } from '@tinyclaw/pulse';
+
+const pulse = createPulseScheduler();
+
+pulse.register({
+  id: 'daily-summary',
+  schedule: '24h',
+  async handler() {
+    await gateway.send('web:owner', {
+      content: 'Here\'s your daily summary...',
+      priority: 'low',
+      source: 'pulse',
+    });
+  },
+});
+```
+
+### Intercom Events
+
+```typescript
+import { createIntercom } from '@tinyclaw/intercom';
+
+const intercom = createIntercom();
+
+intercom.on('task:completed', async (event) => {
+  await gateway.send(event.userId, {
+    content: `Task completed: ${event.data.summary}`,
+    priority: 'normal',
+    source: 'background_task',
+  });
+});
+```
+
+## Performance
+
+- **Routing**: O(1) prefix lookup via Map
+- **Memory**: Minimal - only stores channel registrations
+- **Latency**: &lt;1ms for resolution, actual delivery depends on channel
+
+## Related Packages
+
+- [@tinyclaw/nudge](/api/nudge) - Proactive notification system built on top of gateway
+- [@tinyclaw/intercom](/api/intercom) - Pub/sub event bus that triggers gateway messages
+- [@tinyclaw/pulse](/api/pulse) - Cron-like scheduler that uses gateway for periodic nudges

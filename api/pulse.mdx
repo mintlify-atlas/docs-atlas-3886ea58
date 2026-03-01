@@ -1,0 +1,330 @@
+---
+title: "@tinyclaw/pulse"
+description: "Cron-like recurring task scheduler with simple interval strings and session queue integration."
+---
+
+# @tinyclaw/pulse
+
+Tiny Claw's cron-like recurring task system. Lightweight interval-based scheduler that supports simple interval strings (`'30m'`, `'1h'`, `'24h'`) and runs handlers through the session queue to prevent conflicts.
+
+<Note>
+  **Naming**: "Pulse" is Tiny Claw's version of OpenClaw's "Heartbeat" scheduler.
+</Note>
+
+## Installation
+
+```bash
+bun add @tinyclaw/pulse
+```
+
+## Overview
+
+**Features:**
+- Simple interval strings (`'30s'`, `'5m'`, `'1h'`, `'24h'`)
+- Optional `runOnStart` to fire immediately on start
+- Prevents overlapping runs (skips if previous run still executing)
+- Automatic error handling and logging
+- Zero external dependencies
+
+## API Reference
+
+### `createPulseScheduler()`
+
+Create a pulse scheduler instance.
+
+**Returns:** `PulseScheduler`
+
+```typescript
+import { createPulseScheduler } from '@tinyclaw/pulse';
+
+const pulse = createPulseScheduler();
+```
+
+### PulseScheduler Interface
+
+<ParamField path="register" type="(job: PulseJob) => void">
+  Register a recurring job. If the scheduler is already running, starts the job immediately.
+  
+  **Throws:** If the schedule string is invalid.
+</ParamField>
+
+<ParamField path="start" type="() => void">
+  Start all registered jobs. Idempotent - safe to call multiple times.
+</ParamField>
+
+<ParamField path="stop" type="() => void">
+  Stop all jobs and clear all timers.
+</ParamField>
+
+<ParamField path="jobs" type="() => PulseJob[]">
+  Get a copy of all registered jobs.
+</ParamField>
+
+## Type Definitions
+
+### PulseJob
+
+```typescript
+interface PulseJob {
+  id: string;                    // Unique job identifier
+  schedule: string;              // Interval: '30s', '5m', '1h', '24h'
+  handler: () => Promise<void>;  // Async job function
+  lastRun?: number;              // Timestamp of last execution
+  runOnStart?: boolean;          // Fire immediately on start (default: false)
+  isRunning?: boolean;           // Internal flag - true while executing
+}
+```
+
+### Schedule Format
+
+Valid interval strings:
+- **Seconds**: `'30s'`, `'45s'`, `'60s'`
+- **Minutes**: `'1m'`, `'5m'`, `'15m'`, `'30m'`
+- **Hours**: `'1h'`, `'6h'`, `'12h'`, `'24h'`
+
+## Usage Examples
+
+### Basic Setup
+
+```typescript
+import { createPulseScheduler } from '@tinyclaw/pulse';
+
+const pulse = createPulseScheduler();
+
+// Register jobs
+pulse.register({
+  id: 'memory-consolidation',
+  schedule: '1h',
+  async handler() {
+    await memoryEngine.consolidate('web:owner');
+  },
+});
+
+pulse.register({
+  id: 'nudge-flush',
+  schedule: '1m',
+  runOnStart: true,  // Run immediately on start
+  async handler() {
+    await nudgeEngine.flush();
+  },
+});
+
+// Start scheduler
+pulse.start();
+
+// Stop on shutdown
+pulse.stop();
+```
+
+### Memory Consolidation
+
+```typescript
+import { createPulseScheduler } from '@tinyclaw/pulse';
+import { createMemoryEngine } from '@tinyclaw/memory';
+
+const pulse = createPulseScheduler();
+const memory = createMemoryEngine({ db });
+
+pulse.register({
+  id: 'memory-consolidation',
+  schedule: '1h',
+  async handler() {
+    const { merged, pruned, decayed } = await memory.consolidate('web:owner');
+    logger.info('Memory consolidated', { merged, pruned, decayed });
+  },
+});
+
+pulse.start();
+```
+
+### Update Checker
+
+```typescript
+pulse.register({
+  id: 'update-check',
+  schedule: '24h',
+  runOnStart: true,  // Check on boot
+  async handler() {
+    const latest = await checkForUpdates();
+    if (latest.available) {
+      await nudgeEngine.schedule({
+        userId: 'web:owner',
+        category: 'software_update',
+        content: `Tiny Claw ${latest.version} is available!`,
+        priority: 'low',
+        deliverAfter: 0,
+      });
+    }
+  },
+});
+```
+
+### Companion Check-in
+
+```typescript
+import { createCompanionJobs } from '@tinyclaw/nudge';
+
+const companionJobs = createCompanionJobs({
+  nudgeEngine,
+  provider: ollamaProvider,
+  ownerId: 'web:owner',
+});
+
+// Register all companion jobs
+for (const job of companionJobs) {
+  pulse.register(job);
+}
+
+pulse.start();
+```
+
+## Overlapping Run Prevention
+
+Pulse automatically prevents overlapping runs:
+
+```typescript
+pulse.register({
+  id: 'slow-task',
+  schedule: '30s',
+  async handler() {
+    // This takes 1 minute
+    await processLargeDataset();
+  },
+});
+
+// Timeline:
+// 0:00 - First run starts
+// 0:30 - Second run skipped (first still running)
+// 1:00 - First run completes
+// 1:00 - Third run starts
+// 1:30 - Fourth run skipped (third still running)
+```
+
+Logs: `Pulse: slow-task skipped (still running)`
+
+## Error Handling
+
+Errors in job handlers are caught and logged:
+
+```typescript
+pulse.register({
+  id: 'risky-job',
+  schedule: '5m',
+  async handler() {
+    throw new Error('Something went wrong');
+  },
+});
+
+// Error logged: "Pulse risky-job failed"
+// Scheduler continues - next run happens in 5 minutes
+```
+
+## Performance
+
+- **Registration**: O(1) - push to array
+- **Start**: O(n) - create timer for each job
+- **Stop**: O(n) - clear all timers
+- **Memory**: O(jobs) - minimal overhead
+- **CPU**: Negligible - uses native `setInterval`
+
+## Typical Pulse Jobs
+
+Common jobs registered in a Tiny Claw instance:
+
+| Job ID | Schedule | Purpose |
+|--------|----------|----------|
+| `memory-consolidation` | `1h` | Merge duplicates, prune old memories |
+| `nudge-flush` | `1m` | Deliver pending nudges |
+| `update-check` | `24h` | Check for software updates |
+| `companion-check-in` | `6h` | AI-generated check-in messages |
+| `delegation-cleanup` | `1h` | Archive stale sub-agents |
+| `compaction-check` | `30m` | Compact long conversation history |
+
+## Integration Example
+
+Complete Pulse setup with all subsystems:
+
+```typescript
+import { createPulseScheduler } from '@tinyclaw/pulse';
+import { createNudgeEngine } from '@tinyclaw/nudge';
+import { createMemoryEngine } from '@tinyclaw/memory';
+import { createGateway } from '@tinyclaw/gateway';
+
+const pulse = createPulseScheduler();
+const gateway = createGateway();
+const nudge = createNudgeEngine({ gateway });
+const memory = createMemoryEngine({ db });
+
+// Nudge flush (every minute)
+pulse.register({
+  id: 'nudge-flush',
+  schedule: '1m',
+  runOnStart: true,
+  async handler() {
+    await nudge.flush();
+  },
+});
+
+// Memory consolidation (hourly)
+pulse.register({
+  id: 'memory-consolidation',
+  schedule: '1h',
+  async handler() {
+    await memory.consolidate('web:owner');
+  },
+});
+
+// Update check (daily)
+pulse.register({
+  id: 'update-check',
+  schedule: '24h',
+  runOnStart: true,
+  async handler() {
+    const latest = await checkForUpdates();
+    if (latest.available) {
+      await nudge.schedule({
+        userId: 'web:owner',
+        category: 'software_update',
+        content: `Update available: ${latest.version}`,
+        priority: 'low',
+        deliverAfter: 0,
+      });
+    }
+  },
+});
+
+pulse.start();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  pulse.stop();
+  nudge.stop();
+});
+```
+
+## Best Practices
+
+1. **Use descriptive job IDs** - Makes logs easier to understand
+2. **Set runOnStart for critical jobs** - Ensures they run on boot
+3. **Keep handlers async** - All handlers should return `Promise<void>`
+4. **Handle errors gracefully** - Don't throw from handlers unless recovery is impossible
+5. **Stop on shutdown** - Always call `pulse.stop()` during graceful shutdown
+6. **Avoid very short intervals** - &lt;30s intervals can cause CPU overhead
+
+## Comparison with Node-Cron
+
+| Feature | Pulse | node-cron |
+|---------|-------|------------|
+| **Format** | Simple intervals (`'1h'`) | Cron syntax (`'0 * * * *'`) |
+| **Dependency** | Zero | External package |
+| **Overlapping** | Prevented | Not prevented |
+| **Error handling** | Built-in logging | Manual |
+| **Complexity** | Minimal | Full cron features |
+
+Pulse is intentionally simpler - designed for recurring background tasks, not complex scheduling.
+
+## Related Packages
+
+- [@tinyclaw/nudge](/api/nudge) - Uses Pulse for periodic nudge flushes
+- [@tinyclaw/memory](/api/memory) - Uses Pulse for periodic consolidation
+- [@tinyclaw/intercom](/api/intercom) - Can trigger events from Pulse jobs

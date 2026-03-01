@@ -93,7 +93,11 @@
               "api/plugins",
               "api/logger",
               "api/intercom",
-              "api/queue"
+              "api/queue",
+              "api/gateway",
+              "api/matcher",
+              "api/nudge",
+              "api/pulse"
             ]
           },
           {

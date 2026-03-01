@@ -1,0 +1,365 @@
+---
+title: "@tinyclaw/nudge"
+description: "Proactive notification system that queues, schedules, and delivers nudges from the agent to users with quiet hours and rate limiting."
+---
+
+# @tinyclaw/nudge
+
+The nudge engine queues, schedules, and delivers proactive notifications from the agent to users across channels. It respects user preferences including quiet hours, rate limiting, and per-category opt-out.
+
+## Installation
+
+```bash
+bun add @tinyclaw/nudge
+```
+
+## Overview
+
+**Architecture:**
+```
+Intercom events / Pulse jobs / Agent tools
+  → nudgeEngine.schedule(nudge)
+    → queue (in-memory, sorted by deliverAfter)
+      → flush() checks preferences + quiet hours
+        → gateway.send(userId, message)
+          → SSE / Discord DM / Friends push
+```
+
+**Features:**
+- Quiet hours support (overnight ranges)
+- Rate limiting (max nudges per hour)
+- Per-category opt-out
+- Priority-based delivery (urgent bypasses quiet hours and rate limits)
+- Auto-flush for urgent nudges
+- In-memory queue with scheduled delivery
+
+## API Reference
+
+### `createNudgeEngine(options)`
+
+Create a nudge engine instance.
+
+**Parameters:**
+
+<ParamField path="gateway" type="OutboundGateway" required>
+  The outbound gateway for delivering nudges.
+</ParamField>
+
+<ParamField path="preferences" type="Partial<NudgePreferences>">
+  Initial user preferences (merged with defaults).
+  
+  Defaults:
+  - `enabled`: `true`
+  - `maxPerHour`: `5`
+  - `suppressedCategories`: `[]`
+  - `quietHoursStart`: `undefined`
+  - `quietHoursEnd`: `undefined`
+</ParamField>
+
+**Returns:** `NudgeEngine`
+
+```typescript
+import { createNudgeEngine } from '@tinyclaw/nudge';
+import { createGateway } from '@tinyclaw/gateway';
+
+const gateway = createGateway();
+const nudge = createNudgeEngine({
+  gateway,
+  preferences: {
+    quietHoursStart: '22:00',
+    quietHoursEnd: '08:00',
+    maxPerHour: 3,
+  },
+});
+```
+
+### NudgeEngine Interface
+
+<ParamField path="schedule" type="(nudge: Omit<Nudge, 'id' | 'createdAt' | 'delivered'>) => string">
+  Queue a nudge for delivery. Respects quiet hours and preferences.
+  
+  **Returns:** Nudge ID for tracking/cancellation.
+</ParamField>
+
+<ParamField path="flush" type="() => Promise<void>">
+  Process pending nudges and deliver those that are due.
+  
+  Called periodically by a Pulse job (e.g. every 1 minute).
+</ParamField>
+
+<ParamField path="pending" type="() => Nudge[]">
+  Get all pending (undelivered) nudges.
+</ParamField>
+
+<ParamField path="cancel" type="(id: string) => boolean">
+  Cancel a pending nudge by ID.
+  
+  **Returns:** `true` if cancelled, `false` if not found.
+</ParamField>
+
+<ParamField path="setPreferences" type="(prefs: Partial<NudgePreferences>) => void">
+  Update user preferences.
+</ParamField>
+
+<ParamField path="getPreferences" type="() => NudgePreferences">
+  Get current preferences.
+</ParamField>
+
+<ParamField path="stop" type="() => void">
+  Shut down the engine (clear timers).
+</ParamField>
+
+## Type Definitions
+
+### Nudge
+
+```typescript
+interface Nudge {
+  id: string;                    // Auto-generated UUID
+  userId: string;                // Target user (e.g. 'web:owner')
+  category: NudgeCategory;       // Nudge category
+  content: string;               // Message content
+  priority: OutboundPriority;    // 'urgent' | 'normal' | 'low'
+  createdAt: number;             // Timestamp when queued
+  deliverAfter: number;          // Timestamp when to deliver (0 = ASAP)
+  delivered: boolean;            // Delivery status
+  metadata?: Record<string, unknown>;
+}
+```
+
+### NudgeCategory
+
+```typescript
+type NudgeCategory =
+  | 'task_complete'      // Background task finished
+  | 'task_failed'        // Background task failed
+  | 'reminder'           // Scheduled reminder
+  | 'check_in'           // Periodic check-in
+  | 'insight'            // Agent-initiated insight
+  | 'system'             // System notification
+  | 'software_update'    // Update available
+  | 'agent_initiated'    // Free-form agent outreach
+  | 'companion';         // AI companion nudge
+```
+
+### NudgePreferences
+
+```typescript
+interface NudgePreferences {
+  enabled: boolean;                      // Master switch
+  quietHoursStart?: string;              // 24h format (e.g. '22:00')
+  quietHoursEnd?: string;                // 24h format (e.g. '08:00')
+  maxPerHour: number;                    // Rate limit
+  suppressedCategories: NudgeCategory[]; // Opt-out categories
+}
+```
+
+## Usage Examples
+
+### Basic Setup
+
+```typescript
+import { createNudgeEngine } from '@tinyclaw/nudge';
+import { createGateway } from '@tinyclaw/gateway';
+
+const gateway = createGateway();
+const nudge = createNudgeEngine({ gateway });
+
+// Queue a nudge
+nudge.schedule({
+  userId: 'web:owner',
+  category: 'task_complete',
+  content: 'Your research task is done!',
+  priority: 'normal',
+  deliverAfter: 0,
+});
+
+// Process pending nudges (called by Pulse job)
+await nudge.flush();
+```
+
+### Delayed Nudge
+
+```typescript
+const deliverAt = Date.now() + 30 * 60 * 1000; // 30 minutes
+
+const id = nudge.schedule({
+  userId: 'discord:123456',
+  category: 'reminder',
+  content: 'Don\'t forget to review the PR!',
+  priority: 'normal',
+  deliverAfter: deliverAt,
+});
+
+// Cancel if needed
+if (prReviewed) {
+  nudge.cancel(id);
+}
+```
+
+### Quiet Hours
+
+```typescript
+// Configure quiet hours (10pm to 8am)
+nudge.setPreferences({
+  quietHoursStart: '22:00',
+  quietHoursEnd: '08:00',
+});
+
+// Normal nudges are held during quiet hours
+nudge.schedule({
+  userId: 'web:owner',
+  category: 'check_in',
+  content: 'How are you doing?',
+  priority: 'normal',  // Will be held until 8am
+  deliverAfter: 0,
+});
+
+// Urgent nudges bypass quiet hours
+nudge.schedule({
+  userId: 'web:owner',
+  category: 'task_failed',
+  content: 'Critical error in deployment!',
+  priority: 'urgent',  // Delivered immediately
+  deliverAfter: 0,
+});
+```
+
+### Category Suppression
+
+```typescript
+// Opt out of companion nudges
+nudge.setPreferences({
+  suppressedCategories: ['companion', 'check_in'],
+});
+
+// This nudge will be auto-delivered (marked as delivered without sending)
+nudge.schedule({
+  userId: 'web:owner',
+  category: 'companion',  // Suppressed
+  content: 'Just checking in!',
+  priority: 'low',
+  deliverAfter: 0,
+});
+```
+
+## Intercom Integration
+
+### `wireNudgeToIntercom(nudgeEngine, intercom)`
+
+Wire the nudge engine to intercom events for automatic nudge generation.
+
+**Returns:** Unsubscribe function to tear down all listeners.
+
+```typescript
+import { wireNudgeToIntercom } from '@tinyclaw/nudge';
+import { createIntercom } from '@tinyclaw/intercom';
+
+const intercom = createIntercom();
+const unsub = wireNudgeToIntercom(nudge, intercom);
+
+// Now intercom events auto-generate nudges:
+// - task:completed → task_complete nudge
+// - task:failed → task_failed nudge (urgent)
+// - agent:dismissed → system nudge (low)
+
+// Tear down during shutdown
+unsub();
+```
+
+## Agent Tools
+
+### `createNudgeTools(nudgeEngine)`
+
+Create agent tools for proactive nudge scheduling.
+
+**Returns:** `Tool[]` - Three tools for the agent:
+- `send_nudge` - Send a proactive message
+- `check_pending_nudges` - View pending nudges
+- `cancel_nudge` - Cancel a pending nudge
+
+```typescript
+import { createNudgeTools } from '@tinyclaw/nudge';
+
+const tools = createNudgeTools(nudge);
+
+// Agent can now call:
+// "Send a nudge to remind the user about the meeting in 30 minutes"
+```
+
+### send_nudge Tool
+
+```json
+{
+  "name": "send_nudge",
+  "parameters": {
+    "userId": "web:owner",
+    "content": "Don't forget about the 3pm meeting!",
+    "category": "reminder",
+    "priority": "normal",
+    "delayMinutes": 30
+  }
+}
+```
+
+## Pulse Integration
+
+Schedule periodic nudge flushes:
+
+```typescript
+import { createPulseScheduler } from '@tinyclaw/pulse';
+
+const pulse = createPulseScheduler();
+
+pulse.register({
+  id: 'nudge-flush',
+  schedule: '1m',  // Every minute
+  async handler() {
+    await nudge.flush();
+  },
+});
+
+pulse.start();
+```
+
+## Companion Nudges
+
+The nudge package includes a companion nudge system that generates AI-powered check-ins:
+
+```typescript
+import { createCompanionJobs } from '@tinyclaw/nudge';
+
+const companionJobs = createCompanionJobs({
+  nudgeEngine: nudge,
+  provider: ollamaProvider,
+  ownerId: 'web:owner',
+});
+
+// Register companion jobs with Pulse
+for (const job of companionJobs) {
+  pulse.register(job);
+}
+```
+
+Companion moods: `curious`, `supportive`, `playful`, `philosophical`, `practical`
+
+## Performance
+
+- **Scheduling**: O(1) - push to array
+- **Flushing**: O(n log n) - sort + filter queue
+- **Memory**: O(pending nudges) - held in memory until delivered
+- **Rate limit pruning**: O(k) where k = deliveries in last hour
+
+## Best Practices
+
+1. **Use Pulse for periodic flushing** - Don't rely only on auto-flush
+2. **Set reasonable rate limits** - Default 5/hour prevents spam
+3. **Reserve urgent priority** - Only for critical failures/alerts
+4. **Respect user preferences** - Check suppressedCategories before scheduling
+5. **Clean up on shutdown** - Call `stop()` to clear timers
+
+## Related Packages
+
+- [@tinyclaw/gateway](/api/gateway) - Underlying message delivery system
+- [@tinyclaw/pulse](/api/pulse) - Cron-like scheduler for periodic nudge flushes
+- [@tinyclaw/intercom](/api/intercom) - Event bus that triggers nudges
