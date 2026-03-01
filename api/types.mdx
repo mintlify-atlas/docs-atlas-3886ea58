@@ -1,0 +1,597 @@
+---
+title: '@tinyclaw/types'
+description: 'TypeScript type definitions and interfaces for Tiny Claw'
+---
+
+# @tinyclaw/types
+
+Comprehensive TypeScript type definitions for the entire Tiny Claw ecosystem.
+
+## Installation
+
+```bash
+npm install @tinyclaw/types
+```
+
+## Core Primitives
+
+### `Message`
+
+A conversation message.
+
+```typescript
+interface Message {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+}
+```
+
+### `ToolCall`
+
+A tool invocation from the LLM.
+
+```typescript
+interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+```
+
+### `LLMResponse`
+
+Response from an LLM provider.
+
+```typescript
+interface LLMResponse {
+  type: 'text' | 'tool_calls';
+  content?: string;
+  toolCalls?: ToolCall[];
+}
+```
+
+### `StreamEvent`
+
+Real-time event emitted during agent loop execution.
+
+```typescript
+interface StreamEvent {
+  type: 'text' | 'tool_start' | 'tool_result' | 'done' | 'error' 
+       | 'delegation_start' | 'delegation_complete' 
+       | 'background_start' | 'background_update';
+  content?: string;
+  tool?: string;
+  result?: string;
+  error?: string;
+  delegation?: {
+    agentId?: string;
+    role?: string;
+    task?: string;
+    taskId?: string;
+    tier?: string;
+    isReuse?: boolean;
+    success?: boolean;
+    status?: string;
+    background?: boolean;
+  };
+}
+```
+
+### `Provider`
+
+LLM provider interface.
+
+```typescript
+interface Provider {
+  id: string;
+  name: string;
+  chat(messages: Message[], tools?: Tool[]): Promise<LLMResponse>;
+  isAvailable(): Promise<boolean>;
+}
+```
+
+### `Tool`
+
+Agent tool definition.
+
+```typescript
+interface Tool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  execute(args: Record<string, unknown>): Promise<string>;
+}
+```
+
+## Query Classification
+
+### `QueryTier`
+
+Query complexity tier for model routing.
+
+```typescript
+type QueryTier = 'simple' | 'moderate' | 'complex' | 'reasoning';
+```
+
+## Owner Authority
+
+### `AuthorityTier`
+
+User permission level.
+
+```typescript
+type AuthorityTier = 'owner' | 'friend';
+```
+
+- **owner**: Full control (config, secrets, heartware, delegation, tools)
+- **friend**: Chat only (cannot modify system configuration)
+
+### `OwnerAuthority`
+
+Owner configuration stored in config.
+
+```typescript
+interface OwnerAuthority {
+  ownerId: string;              // e.g., 'web:owner'
+  sessionTokenHash: string;     // SHA-256 hash of session token
+  claimedAt: number;            // Timestamp of claim
+}
+```
+
+### `OWNER_ONLY_TOOLS`
+
+Set of tools restricted to the owner.
+
+```typescript
+const OWNER_ONLY_TOOLS: ReadonlySet<string>;
+```
+
+Includes: heartware_write, identity_update, soul_update, builtin_model_switch, delegate_task, run_shell, config_set, secrets_store, and more.
+
+### `isOwner(userId, ownerId): boolean`
+
+Check if a userId matches the owner.
+
+## Agent Context
+
+### `AgentContext`
+
+Complete runtime context for the agent loop.
+
+```typescript
+interface AgentContext {
+  db: Database;
+  provider: Provider;
+  learning: LearningEngine;
+  tools: Tool[];
+  heartwareContext?: string;
+  secrets?: SecretsManagerInterface;
+  configManager?: ConfigManagerInterface;
+  modelName?: string;
+  providerName?: string;
+  ownerId?: string;
+  memory?: MemoryEngine;
+  shield?: ShieldEngine;
+  delegation?: {
+    lifecycle: unknown;
+    templates: unknown;
+    background: {
+      getUndelivered(userId: string): BackgroundTask[];
+      markDelivered(taskId: string): void;
+      cancelAll(): void;
+      cleanupStale(olderThanMs: number): number;
+    };
+  };
+  compactor?: {
+    compactIfNeeded(userId: string, provider: Provider): Promise<unknown>;
+    getLatestSummary(userId: string): string | null;
+    estimateTokens(text: string): number;
+  };
+  updateContext?: string;
+}
+```
+
+## Database
+
+### `Database`
+
+Complete database interface with methods for messages, memory, sub-agents, episodic memory, task metrics, and blackboard.
+
+```typescript
+interface Database {
+  // Messages
+  saveMessage(userId: string, role: string, content: string): void;
+  getHistory(userId: string, limit?: number): Message[];
+  getMessageCount(userId: string): number;
+  getMessageTimestamps(userId: string): number[];
+  deleteMessagesBefore(userId: string, beforeTimestamp: number): void;
+  deleteMessagesForUser(userId: string): void;
+
+  // Compactions
+  saveCompaction(userId: string, summary: string, replacedBefore: number): void;
+  getLatestCompaction(userId: string): CompactionRecord | null;
+
+  // Memory (key-value)
+  saveMemory(userId: string, key: string, value: string): void;
+  getMemory(userId: string): Record<string, string>;
+
+  // Sub-agents
+  saveSubAgent(record: SubAgentRecord): void;
+  getSubAgent(id: string): SubAgentRecord | null;
+  getActiveSubAgents(userId: string): SubAgentRecord[];
+  getAllSubAgents(userId: string, includeDeleted?: boolean): SubAgentRecord[];
+  updateSubAgent(id: string, updates: Partial<SubAgentRecord>): void;
+  deleteExpiredSubAgents(beforeTimestamp: number): number;
+  archiveStaleSuspended(inactiveBefore: number): number;
+
+  // Role templates
+  saveRoleTemplate(template: RoleTemplate): void;
+  getRoleTemplate(id: string): RoleTemplate | null;
+  getRoleTemplates(userId: string): RoleTemplate[];
+  updateRoleTemplate(id: string, updates: Partial<RoleTemplate>): void;
+  deleteRoleTemplate(id: string): void;
+
+  // Background tasks
+  saveBackgroundTask(record: BackgroundTask): void;
+  updateBackgroundTask(id: string, status: string, result: string | null, completedAt: number | null): void;
+  getUndeliveredTasks(userId: string): BackgroundTask[];
+  getUserBackgroundTasks(userId: string): BackgroundTask[];
+  getBackgroundTask(id: string): BackgroundTask | null;
+  markTaskDelivered(id: string): void;
+  getStaleBackgroundTasks(olderThanMs: number): BackgroundTask[];
+
+  // Episodic memory (v3)
+  saveEpisodicEvent(record: EpisodicRecord): void;
+  getEpisodicEvent(id: string): EpisodicRecord | null;
+  getEpisodicEvents(userId: string, limit?: number): EpisodicRecord[];
+  updateEpisodicEvent(id: string, updates: Partial<EpisodicRecord>): void;
+  deleteEpisodicEvents(ids: string[]): void;
+  searchEpisodicFTS(query: string, userId: string, limit?: number): Array<{ id: string; rank: number }>;
+  decayEpisodicImportance(userId: string, olderThanDays: number, decayFactor: number): number;
+  pruneEpisodicEvents(userId: string, maxImportance: number, maxAccessCount: number, olderThanMs: number): number;
+
+  // Task metrics
+  saveTaskMetric(record: TaskMetricRecord): void;
+  getTaskMetrics(taskType: string, tier: string, limit?: number): TaskMetricRecord[];
+
+  // Blackboard (v3)
+  saveBlackboardEntry(entry: BlackboardEntry): void;
+  getBlackboardEntry(id: string): BlackboardEntry | null;
+  getBlackboardProposals(problemId: string): BlackboardEntry[];
+  getActiveProblems(userId: string): BlackboardEntry[];
+  resolveBlackboardProblem(problemId: string, synthesis: string): void;
+  cleanupBlackboard(olderThanMs: number): number;
+
+  close(): void;
+}
+```
+
+## Database Records
+
+### `SubAgentRecord`
+
+```typescript
+interface SubAgentRecord {
+  id: string;
+  userId: string;
+  role: string;
+  systemPrompt: string;
+  toolsGranted: string[];
+  tierPreference: QueryTier | null;
+  status: 'active' | 'suspended' | 'soft_deleted';
+  performanceScore: number;
+  totalTasks: number;
+  successfulTasks: number;
+  templateId: string | null;
+  createdAt: number;
+  lastActiveAt: number;
+  deletedAt: number | null;
+}
+```
+
+### `RoleTemplate`
+
+```typescript
+interface RoleTemplate {
+  id: string;
+  userId: string;
+  name: string;
+  roleDescription: string;
+  defaultTools: string[];
+  defaultTier: QueryTier | null;
+  timesUsed: number;
+  avgPerformance: number;
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+```
+
+### `BackgroundTask`
+
+```typescript
+interface BackgroundTask {
+  id: string;
+  userId: string;
+  agentId: string;
+  taskDescription: string;
+  status: 'running' | 'completed' | 'failed' | 'delivered';
+  result: string | null;
+  startedAt: number;
+  completedAt: number | null;
+  deliveredAt: number | null;
+}
+```
+
+### `CompactionRecord`
+
+```typescript
+interface CompactionRecord {
+  id: number;
+  userId: string;
+  summary: string;
+  replacedBefore: number;
+  createdAt: number;
+}
+```
+
+## Episodic Memory (v3)
+
+### `EpisodicEventType`
+
+```typescript
+type EpisodicEventType =
+  | 'task_completed'
+  | 'preference_learned'
+  | 'correction'
+  | 'delegation_result'
+  | 'fact_stored';
+```
+
+### `EpisodicRecord`
+
+```typescript
+interface EpisodicRecord {
+  id: string;
+  userId: string;
+  eventType: EpisodicEventType;
+  content: string;
+  outcome: string | null;
+  importance: number;
+  accessCount: number;
+  createdAt: number;
+  lastAccessedAt: number;
+}
+```
+
+### `MemorySearchResult`
+
+```typescript
+interface MemorySearchResult {
+  id: string;
+  content: string;
+  relevanceScore: number;  // FTS5 rank + temporal decay + importance
+  source: 'episodic' | 'key_value';
+}
+```
+
+### `MemoryEngine`
+
+```typescript
+interface MemoryEngine {
+  recordEvent(userId: string, event: {
+    type: EpisodicEventType;
+    content: string;
+    outcome?: string;
+    importance?: number;
+  }): string;  // returns event id
+
+  search(userId: string, query: string, limit?: number): MemorySearchResult[];
+  consolidate(userId: string): { merged: number; pruned: number; decayed: number };
+  getContextForAgent(userId: string, query?: string): string;
+  reinforce(memoryId: string): void;
+  getEvent(id: string): EpisodicRecord | null;
+  getEvents(userId: string, limit?: number): EpisodicRecord[];
+}
+```
+
+## Shield (Security)
+
+### `ShieldAction`
+
+```typescript
+type ShieldAction = 'block' | 'require_approval' | 'log';
+```
+
+### `ShieldScope`
+
+```typescript
+type ShieldScope =
+  | 'prompt'
+  | 'skill.install'
+  | 'skill.execute'
+  | 'tool.call'
+  | 'network.egress'
+  | 'secrets.read'
+  | 'mcp';
+```
+
+### `ThreatSeverity`
+
+```typescript
+type ThreatSeverity = 'critical' | 'high' | 'medium' | 'low';
+```
+
+### `ThreatEntry`
+
+```typescript
+interface ThreatEntry {
+  id: string;
+  fingerprint: string;
+  category: ThreatCategory;
+  severity: ThreatSeverity;
+  confidence: number;
+  action: ShieldAction;
+  title: string;
+  description: string;
+  recommendationAgent: string;
+  expiresAt: string | null;
+  revoked: boolean;
+  revokedAt: string | null;
+}
+```
+
+### `ShieldEvent`
+
+```typescript
+interface ShieldEvent {
+  scope: ShieldScope;
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+  domain?: string;
+  secretPath?: string;
+  skillName?: string;
+  inputText?: string;
+  userId?: string;
+}
+```
+
+### `ShieldDecision`
+
+```typescript
+interface ShieldDecision {
+  action: ShieldAction;
+  scope: ShieldScope;
+  threatId: string | null;
+  fingerprint: string | null;
+  matchedOn: string | null;
+  matchValue: string | null;
+  reason: string;
+}
+```
+
+### `ShieldEngine`
+
+```typescript
+interface ShieldEngine {
+  evaluate(event: ShieldEvent): ShieldDecision;
+  isActive(): boolean;
+  getThreats(): ThreatEntry[];
+}
+```
+
+## Config & Secrets
+
+### `ConfigManagerInterface`
+
+```typescript
+interface ConfigManagerInterface {
+  get<V = unknown>(key: string, defaultValue?: V): V | undefined;
+  has(key: string): boolean;
+  set(key: string, value: unknown): void;
+  set(object: Record<string, unknown>): void;
+  delete(key: string): void;
+  reset(...keys: string[]): void;
+  clear(): void;
+  readonly store: Record<string, unknown>;
+  readonly size: number;
+  readonly path: string;
+  onDidChange<V = unknown>(key: string, callback: (newValue?: V, oldValue?: V) => void): () => void;
+  onDidAnyChange(callback: (newValue?: Record<string, unknown>, oldValue?: Record<string, unknown>) => void): () => void;
+  close(): void;
+}
+```
+
+### `SecretsManagerInterface`
+
+```typescript
+interface SecretsManagerInterface {
+  store(key: string, value: string): Promise<void>;
+  check(key: string): Promise<boolean>;
+  retrieve(key: string): Promise<string | null>;
+  list(pattern?: string): Promise<string[]>;
+  resolveProviderKey(providerName: string): Promise<string | null>;
+  close(): Promise<void>;
+}
+```
+
+## Plugin System
+
+### `TinyClawPlugin`
+
+```typescript
+type TinyClawPlugin = ChannelPlugin | ProviderPlugin | ToolsPlugin;
+```
+
+### `ChannelPlugin`
+
+```typescript
+interface ChannelPlugin extends PluginMeta {
+  readonly type: 'channel';
+  start(context: PluginRuntimeContext): Promise<void>;
+  stop(): Promise<void>;
+  getPairingTools?(secrets: SecretsManagerInterface, configManager: ConfigManagerInterface): Tool[];
+  sendToUser?(userId: string, message: OutboundMessage): Promise<void>;
+  readonly channelPrefix?: string;
+}
+```
+
+### `ProviderPlugin`
+
+```typescript
+interface ProviderPlugin extends PluginMeta {
+  readonly type: 'provider';
+  createProvider(secrets: SecretsManagerInterface): Promise<Provider>;
+  getPairingTools?(secrets: SecretsManagerInterface, configManager: ConfigManagerInterface): Tool[];
+}
+```
+
+### `ToolsPlugin`
+
+```typescript
+interface ToolsPlugin extends PluginMeta {
+  readonly type: 'tools';
+  createTools(context: AgentContext): Tool[];
+}
+```
+
+## Learning
+
+### `LearningEngine`
+
+```typescript
+interface LearningEngine {
+  analyze(userMessage: string, assistantMessage: string, history: Message[]): void;
+  getContext(): LearnedContext;
+  injectIntoPrompt(basePrompt: string, context: LearnedContext): string;
+}
+```
+
+### `LearnedContext`
+
+```typescript
+interface LearnedContext {
+  preferences: string;
+  patterns: string;
+  recentCorrections: string;
+}
+```
+
+## Utility Functions
+
+### `buildProviderKeyName(providerName: string): string`
+
+Build a provider API key following the naming convention: `provider.<name>.apiKey`
+
+### `buildChannelKeyName(channelName: string): string`
+
+Build a channel token key: `channel.<name>.token`
+
+## Related Packages
+
+- [@tinyclaw/core](/api/core) - Core agent runtime
+- [@tinyclaw/config](/api/config) - Configuration management
+- [@tinyclaw/memory](/api/memory) - Adaptive memory engine
+- [@tinyclaw/delegation](/api/delegation) - Sub-agent delegation

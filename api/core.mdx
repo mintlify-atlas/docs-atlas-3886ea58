@@ -1,0 +1,288 @@
+---
+title: '@tinyclaw/core'
+description: 'Core agent runtime, loop, database, and LLM interface for Tiny Claw'
+---
+
+# @tinyclaw/core
+
+The foundational package containing Tiny Claw's agent runtime, conversation loop, database layer, and built-in LLM provider.
+
+## Installation
+
+```bash
+npm install @tinyclaw/core
+```
+
+## Main Exports
+
+### Agent Loop
+
+#### `agentLoop()`
+
+The core conversational agent loop that handles messages, tool execution, and streaming responses.
+
+<ParamField path="message" type="string" required>
+  The user's input message
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  Unique identifier for the user (e.g., `"web:owner"`, `"discord:123456"`)
+</ParamField>
+
+<ParamField path="context" type="AgentContext" required>
+  Complete agent context including database, provider, tools, and configuration
+</ParamField>
+
+<ParamField path="onStream" type="(event: StreamEvent) => void">
+  Optional streaming callback for real-time updates
+</ParamField>
+
+<ResponseField name="response" type="string">
+  The agent's final response after processing
+</ResponseField>
+
+**Features:**
+- Multi-turn conversation with tool execution
+- Prompt injection defense with boundary markers
+- Owner authority enforcement (owner vs. friend permissions)
+- Shield integration for security policy enforcement
+- Adaptive memory integration for context retrieval
+- Em-dash sanitization for clean output
+- Background task result injection
+- Automatic history compaction
+
+```typescript
+import { agentLoop } from '@tinyclaw/core';
+
+const response = await agentLoop(
+  "What's the weather like?",
+  "web:owner",
+  agentContext,
+  (event) => {
+    if (event.type === 'text') {
+      console.log(event.content);
+    }
+  }
+);
+```
+
+### Database
+
+#### `createDatabase(path: string): Database`
+
+Creates a SQLite-backed database for conversation history, memory, sub-agents, and more.
+
+<ParamField path="path" type="string" required>
+  Absolute path to the SQLite database file
+</ParamField>
+
+<ResponseField name="db" type="Database">
+  Database instance with methods for messages, memory, compactions, sub-agents, episodic memory, task metrics, and blackboard
+</ResponseField>
+
+**Database Methods:**
+
+**Messages:**
+- `saveMessage(userId, role, content)` - Save a conversation message
+- `getHistory(userId, limit?)` - Retrieve conversation history
+- `getMessageCount(userId)` - Count messages for a user
+- `getMessageTimestamps(userId)` - Get message timestamps (ascending)
+- `deleteMessagesBefore(userId, beforeTimestamp)` - Delete old messages
+- `deleteMessagesForUser(userId)` - Delete all messages for a user
+
+**Memory (Key-Value):**
+- `saveMemory(userId, key, value)` - Store a memory entry
+- `getMemory(userId)` - Retrieve all memories as a key-value object
+
+**Compactions:**
+- `saveCompaction(userId, summary, replacedBefore)` - Save a compaction summary
+- `getLatestCompaction(userId)` - Get the most recent compaction
+
+**Sub-Agents:**
+- `saveSubAgent(record)` - Create a new sub-agent
+- `getSubAgent(id)` - Retrieve a sub-agent by ID
+- `getActiveSubAgents(userId)` - Get active/suspended sub-agents
+- `getAllSubAgents(userId, includeDeleted?)` - Get all sub-agents
+- `updateSubAgent(id, updates)` - Update sub-agent fields
+- `deleteExpiredSubAgents(beforeTimestamp)` - Clean up soft-deleted sub-agents
+- `archiveStaleSuspended(inactiveBefore)` - Archive inactive suspended sub-agents
+
+**Episodic Memory (v3):**
+- `saveEpisodicEvent(record)` - Store an episodic memory event
+- `getEpisodicEvent(id)` - Retrieve a single event
+- `getEpisodicEvents(userId, limit?)` - Get recent episodic events
+- `updateEpisodicEvent(id, updates)` - Update importance/access count
+- `deleteEpisodicEvents(ids)` - Delete events by ID
+- `searchEpisodicFTS(query, userId, limit?)` - Full-text search (FTS5)
+- `decayEpisodicImportance(userId, olderThanDays, decayFactor)` - Apply temporal decay
+- `pruneEpisodicEvents(userId, maxImportance, maxAccessCount, olderThanMs)` - Prune low-value events
+
+**Task Metrics:**
+- `saveTaskMetric(record)` - Log task execution metrics
+- `getTaskMetrics(taskType, tier, limit?)` - Retrieve metrics for analysis
+
+**Blackboard (v3):**
+- `saveBlackboardEntry(entry)` - Post a problem or proposal
+- `getBlackboardEntry(id)` - Retrieve an entry
+- `getBlackboardProposals(problemId)` - Get proposals for a problem
+- `getActiveProblems(userId)` - Get open problems
+- `resolveBlackboardProblem(problemId, synthesis)` - Mark problem as resolved
+- `cleanupBlackboard(olderThanMs)` - Clean up old resolved entries
+
+```typescript
+import { createDatabase } from '@tinyclaw/core';
+
+const db = createDatabase('/path/to/tiny-claw.db');
+db.saveMessage('web:owner', 'user', 'Hello!');
+const history = db.getHistory('web:owner', 20);
+```
+
+### LLM Provider
+
+#### `createOllamaProvider(config: OllamaConfig): Provider`
+
+Creates the built-in Ollama Cloud provider.
+
+<ParamField path="config.apiKey" type="string">
+  Explicit API key (optional, defaults to secrets manager lookup)
+</ParamField>
+
+<ParamField path="config.secrets" type="SecretsManager">
+  Secrets manager for API key resolution
+</ParamField>
+
+<ParamField path="config.model" type="string">
+  Model tag to use (default: from `DEFAULT_MODEL`)
+</ParamField>
+
+<ParamField path="config.baseUrl" type="string">
+  Base URL for Ollama API (default: `"https://ollama.com"`)
+</ParamField>
+
+<ResponseField name="provider" type="Provider">
+  Provider instance with `chat()` and `isAvailable()` methods
+</ResponseField>
+
+**Provider Methods:**
+- `chat(messages, tools?)` - Send messages and receive a response
+- `isAvailable()` - Check if the provider is reachable and authenticated
+
+```typescript
+import { createOllamaProvider } from '@tinyclaw/core';
+
+const provider = createOllamaProvider({
+  model: 'kimi-k2.5:cloud',
+  secrets: secretsManager,
+});
+
+const response = await provider.chat([
+  { role: 'user', content: 'Hello!' }
+]);
+```
+
+### Model Constants
+
+```typescript
+import {
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_BASE_URL,
+  BUILTIN_MODELS,
+  BUILTIN_MODEL_TAGS,
+} from '@tinyclaw/core';
+```
+
+<ResponseField name="DEFAULT_MODEL" type="string">
+  Default model tag: `"kimi-k2.5:cloud"`
+</ResponseField>
+
+<ResponseField name="DEFAULT_PROVIDER" type="string">
+  Default provider name: `"ollama"`
+</ResponseField>
+
+<ResponseField name="DEFAULT_BASE_URL" type="string">
+  Default Ollama API base URL: `"https://ollama.com"`
+</ResponseField>
+
+<ResponseField name="BUILTIN_MODELS" type="Record<string, string>">
+  Map of built-in model tags to display names
+</ResponseField>
+
+<ResponseField name="BUILTIN_MODEL_TAGS" type="string[]">
+  Array of all built-in model tags
+</ResponseField>
+
+### Owner Authority
+
+Cryptographic utilities for owner authentication (TOTP, backup codes, session tokens).
+
+```typescript
+import {
+  generateTotpSecret,
+  generateTotpCode,
+  verifyTotpCode,
+  createTotpUri,
+  generateSessionToken,
+  generateBackupCodes,
+  generateRecoveryToken,
+  sha256,
+} from '@tinyclaw/core';
+```
+
+**Functions:**
+- `generateTotpSecret()` - Generate a base32 TOTP secret
+- `generateTotpCode(secret)` - Generate a 6-digit TOTP code
+- `verifyTotpCode(secret, code)` - Verify a TOTP code (30s window)
+- `createTotpUri(secret, label)` - Create otpauth:// URI for QR codes
+- `generateSessionToken()` - Generate a secure session token
+- `generateBackupCodes(count)` - Generate backup codes
+- `generateRecoveryToken()` - Generate a recovery token
+- `sha256(text)` - SHA-256 hash utility
+
+### Update Checker
+
+```typescript
+import {
+  checkForUpdate,
+  buildUpdateContext,
+  detectRuntime,
+  isNewerVersion,
+} from '@tinyclaw/core';
+```
+
+**Functions:**
+- `checkForUpdate(currentVersion)` - Check npm for updates
+- `buildUpdateContext(updateInfo?)` - Build system prompt context
+- `detectRuntime()` - Detect runtime environment (npm/bun/docker/binary)
+- `isNewerVersion(current, latest)` - Compare semver versions
+
+### Onboarding Messages
+
+```typescript
+import {
+  SECURITY_WARNING_TITLE,
+  SECURITY_WARNING_BODY,
+  TOTP_SETUP_TITLE,
+  TOTP_SETUP_BODY,
+  BACKUP_CODES_INTRO,
+  BACKUP_CODES_HINT,
+  RECOVERY_TOKEN_HINT,
+  SECURITY_CONFIRM,
+  defaultModelNote,
+} from '@tinyclaw/core';
+```
+
+Pre-formatted onboarding messages for the claim flow.
+
+## Types
+
+See [@tinyclaw/types](/api/types) for all type definitions used by `@tinyclaw/core`.
+
+## Related Packages
+
+- [@tinyclaw/types](/api/types) - TypeScript type definitions
+- [@tinyclaw/config](/api/config) - Configuration management
+- [@tinyclaw/memory](/api/memory) - Adaptive memory engine
+- [@tinyclaw/delegation](/api/delegation) - Sub-agent delegation
+- [@tinyclaw/compactor](/api/compactor) - Conversation compaction
+- [@tinyclaw/shield](/api/shield) - Runtime security enforcement

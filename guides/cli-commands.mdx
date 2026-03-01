@@ -1,0 +1,536 @@
+---
+title: CLI Commands
+description: Complete reference for all Tiny Claw command-line interface commands
+icon: terminal
+---
+
+The Tiny Claw CLI provides a lightweight, framework-free interface for managing your agent. All commands are accessed through the `tinyclaw` binary.
+
+## Command Overview
+
+<CardGroup cols={2}>
+  <Card title="setup" icon="sparkles">
+    Interactive first-time setup wizard
+  </Card>
+  <Card title="start" icon="play">
+    Boot the Tiny Claw agent
+  </Card>
+  <Card title="config" icon="gear">
+    Manage models, providers, and settings
+  </Card>
+  <Card title="seed" icon="seedling">
+    Show your Tiny Claw's soul seed
+  </Card>
+  <Card title="backup" icon="floppy-disk">
+    Export or import backup archives
+  </Card>
+  <Card title="purge" icon="trash">
+    Wipe all data for fresh install
+  </Card>
+</CardGroup>
+
+## Global Options
+
+```bash
+tinyclaw [command] [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--verbose` | Show debug-level logs during start |
+| `--version`, `-v` | Show version number |
+| `--help`, `-h` | Show help message |
+
+## Setup Command
+
+Interactive setup wizard for first-time configuration.
+
+```bash
+tinyclaw setup [--web]
+```
+
+<ParamField path="--web" type="flag">
+  Launch browser-based setup at `http://localhost:3000/setup` instead of CLI wizard
+</ParamField>
+
+### What it does
+
+<Steps>
+<Step title="Security acknowledgment">
+  Review and accept security warnings and MIT license terms
+</Step>
+
+<Step title="Provider setup">
+  Configure Ollama Cloud API key (validated via connectivity test)
+</Step>
+
+<Step title="Soul seed generation">
+  Generate or enter a soul seed for personality creation
+</Step>
+
+<Step title="Two-factor auth">
+  Set up TOTP authentication for web dashboard access
+</Step>
+
+<Step title="Recovery credentials">
+  Generate and save recovery token + backup codes
+</Step>
+</Steps>
+
+<CodeGroup>
+```bash CLI Wizard
+$ tinyclaw setup
+
+┌  Let's set up Tiny Claw
+│
+│  Enter your Ollama Cloud API key
+│  ••••••••••••••••••••
+│
+│  ✔ API key is valid
+│
+│  ...
+└  You're all set! Run tinyclaw start to begin.
+```
+
+```bash Web Setup
+$ tinyclaw setup --web
+
+🦜 Tiny Claw — Small agent, mighty friend
+📂 Data directory: /home/user/.tinyclaw
+✅ Secrets engine initialized
+✅ Config engine initialized
+────────────────────────────────────────────────────────
+⚠️  Web setup mode enabled (--web).
+📋 Choose your onboarding path:
+📋 1. tinyclaw setup (CLI wizard)
+📋 2. tinyclaw setup --web (Web setup)
+────────────────────────────────────────────────────────
+🔗 Open: http://localhost:3000/setup
+```
+</CodeGroup>
+
+<Note>
+If you've already run setup, the wizard will show your existing configuration and ask if you want to reconfigure.
+</Note>
+
+## Start Command
+
+Boot the Tiny Claw agent (requires setup first).
+
+```bash
+tinyclaw start [--verbose]
+```
+
+<ParamField path="--verbose" type="flag">
+  Override log level to `debug` for this session (doesn't affect persistent config)
+</ParamField>
+
+### What it does
+
+1. Loads configuration from `~/.tinyclaw/data/config.db`
+2. Initializes the secrets engine
+3. Generates soul from saved seed
+4. Registers providers (built-in + plugins)
+5. Boots sub-agents and background tasks
+6. Starts the web server (default port 3000)
+
+The agent runs under a **supervisor** that automatically restarts it if it crashes.
+
+<CodeGroup>
+```bash Example
+$ tinyclaw start
+
+🦜 Tiny Claw — Small agent, mighty friend
+📂 Data directory: /home/user/.tinyclaw
+✅ Secrets engine initialized
+✅ Config engine initialized
+🧬 Soul generated from seed: 8675309
+🤖 Starting Tiny Claw agent...
+🌐 Web UI: http://localhost:3000
+```
+</CodeGroup>
+
+<Warning>
+You must run `tinyclaw setup` before using `start`. The agent won't boot without a valid configuration.
+</Warning>
+
+## Config Command
+
+Manage models, providers, and logging settings.
+
+```bash
+tinyclaw config <subcommand> [...args]
+```
+
+### Model Subcommands
+
+<AccordionGroup>
+  <Accordion title="tinyclaw config model" icon="eye">
+    Show current model configuration (built-in + primary providers)
+    
+    ```bash
+    $ tinyclaw config model
+    
+    Model Configuration
+    
+    Built-in (Ollama Cloud - always available as fallback)
+      Model    : qwen2.5:32b-instruct
+      Base URL : https://ollama.com/api
+    
+    Primary (not configured)
+      No primary provider set. Built-in is used as the default.
+    ```
+  </Accordion>
+  
+  <Accordion title="tinyclaw config model list" icon="list">
+    List available built-in models for Ollama Cloud
+    
+    ```bash
+    $ tinyclaw config model list
+    
+    Available Built-in Models
+    
+    ● qwen2.5:32b-instruct
+      Best all-around model - balanced speed and capability
+    
+    ○ qwen2.5:14b-instruct
+      Faster, smaller model for simple tasks
+    
+    ○ qwen2.5:72b-instruct
+      Largest model for complex reasoning
+    ```
+  </Accordion>
+  
+  <Accordion title="tinyclaw config model builtin <tag>" icon="code-branch">
+    Switch the built-in model to a different tag
+    
+    ```bash
+    $ tinyclaw config model builtin qwen2.5:72b-instruct
+    
+    ✔ Built-in model switched to qwen2.5:72b-instruct
+    
+    Restart Tiny Claw for changes to take effect.
+    ```
+    
+    Available tags: `qwen2.5:32b-instruct`, `qwen2.5:14b-instruct`, `qwen2.5:72b-instruct`
+  </Accordion>
+  
+  <Accordion title="tinyclaw config model primary" icon="star">
+    Show current primary provider (plugin-based override)
+    
+    ```bash
+    $ tinyclaw config model primary
+    
+    Primary Provider
+    
+      Model      : gpt-4
+      Base URL   : https://api.openai.com/v1
+      API Key    : stored as "provider:openai"
+    
+    Clear with: tinyclaw config model primary clear
+    ```
+  </Accordion>
+  
+  <Accordion title="tinyclaw config model primary clear" icon="xmark">
+    Remove primary provider override (revert to built-in)
+    
+    ```bash
+    $ tinyclaw config model primary clear
+    
+    ✔ Primary provider cleared
+      Built-in will be used as the default provider.
+    
+    Restart Tiny Claw for changes to take effect.
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Logging Subcommands
+
+<AccordionGroup>
+  <Accordion title="tinyclaw config logging" icon="eye">
+    Show current log level
+    
+    ```bash
+    $ tinyclaw config logging
+    
+    Log Level
+    
+    ○ debug
+    ● info
+    ○ warn
+    ○ error
+    ○ silent
+    
+    Change with: tinyclaw config logging <level>
+    Override per session with: tinyclaw start --verbose
+    ```
+  </Accordion>
+  
+  <Accordion title="tinyclaw config logging <level>" icon="pen">
+    Set the persistent log level
+    
+    ```bash
+    $ tinyclaw config logging debug
+    
+    ✔ Log level set to debug
+    
+    Restart Tiny Claw for changes to take effect.
+    ```
+    
+    Available levels: `debug`, `info`, `warn`, `error`, `silent`
+  </Accordion>
+</AccordionGroup>
+
+## Seed Command
+
+Display your Tiny Claw's soul seed and generated personality.
+
+```bash
+tinyclaw seed
+```
+
+<CodeGroup>
+```bash Example Output
+🧬 Soul Seed: 8675309
+
+  Character
+    Name      : Pixel 🦊
+    Creature  : fox
+    Catchphrase: "Let's pixel-perfect this!"
+
+  Personality (Big Five)
+    Openness          : ████████████████░░░░ 80%
+    Conscientiousness : ████████████░░░░░░░░ 60%
+    Extraversion      : ██████████████░░░░░░ 70%
+    Agreeableness     : ████████████████████ 100%
+    Emot. Sensitivity : ██████████░░░░░░░░░░ 50%
+
+  Communication
+    Verbosity  : ██████████████░░░░░░ 70%
+    Formality  : ████░░░░░░░░░░░░░░░░ 20%
+    Emoji      : ████████████████░░░░ 80%
+    Humor      : playful
+
+  Favorites
+    Color   : cyan
+    Number  : 7
+    Season  : autumn
+    Time    : evening
+    Greeting: "Hey there!"
+
+  Values: curiosity, loyalty, creativity
+  Quirks: 12 behavioral patterns
+
+  This soul is immutable — the same seed always produces the same personality.
+  Share your seed with others so they can create a companion just like yours!
+```
+</CodeGroup>
+
+The soul seed is set during setup and **cannot be changed**. It deterministically generates all personality traits.
+
+## Backup Command
+
+Export or import Tiny Claw data for migration between machines.
+
+```bash
+tinyclaw backup <subcommand> [...args]
+```
+
+### Export Backup
+
+Create a `.tinyclaw` backup archive with all portable data.
+
+```bash
+tinyclaw backup export [path]
+```
+
+<ParamField path="path" type="string" default="~/.tinyclaw/backups/">
+  Output path for the backup archive. Can be:
+  - A directory (archive will be saved there with timestamp filename)
+  - A file path (must end in `.tinyclaw`)
+  - Omitted (defaults to `~/.tinyclaw/backups/`)
+</ParamField>
+
+<CodeGroup>
+```bash Export to default location
+$ tinyclaw backup export
+
+✔ Archive created (2.34 MB)
+
+  File       /home/user/.tinyclaw/backups/2026-03-01T14-30-00.tinyclaw
+  Contents   127 files
+  Soul       Pixel
+
+  Secret keys (names only — values are NOT exported)
+    • provider:ollama
+    • owner.totpSecret
+
+  ⚠ You'll need to re-enter these secret values when importing
+    on another machine. Secrets are machine-bound and cannot be
+    transferred.
+```
+
+```bash Export to custom path
+$ tinyclaw backup export ~/my-backup.tinyclaw
+
+✔ Archive created (2.34 MB)
+```
+</CodeGroup>
+
+<Warning>
+**Secrets are NOT exported.** The archive includes secret *key names* only. You'll need to re-enter secret values (API keys, tokens) when importing on another machine.
+</Warning>
+
+### Import Backup
+
+Extract a `.tinyclaw` backup archive and restore data.
+
+```bash
+tinyclaw backup import <file>
+```
+
+<ParamField path="file" type="string" required>
+  Path to the `.tinyclaw` backup archive
+</ParamField>
+
+<CodeGroup>
+```bash Example
+$ tinyclaw backup import 2026-03-01T14-30-00.tinyclaw
+
+✔ Archive loaded
+
+  Archive    2026-03-01T14-30-00.tinyclaw
+  Created    2026-03-01T14:30:00.000Z
+  Soul       Pixel
+  From       my-machine (linux)
+  Files      127
+
+  Secrets to re-enter (2 keys)
+    • provider:ollama
+    • owner.totpSecret
+
+⚠ Existing Tiny Claw data found at /home/user/.tinyclaw
+  Importing will overwrite your current data.
+
+Proceed with import? [y/N]
+› y
+
+✔ Extracted 127 files
+
+Secret Re-entry
+
+  Your previous install had secrets that need to be re-entered.
+  Secrets are machine-bound and cannot be transferred between machines.
+  Each value will be encrypted with this machine's identity.
+
+Enter value for provider:ollama
+› ••••••••••••••••••••
+
+✔ 2 secret(s) stored
+
+Import complete! Run tinyclaw start to boot your Tiny Claw.
+```
+</CodeGroup>
+
+<Note>
+Import will **overwrite existing data** at `~/.tinyclaw/`. The wizard will warn you before proceeding.
+</Note>
+
+## Purge Command
+
+Wipe all persisted Tiny Claw state for a fresh install.
+
+```bash
+tinyclaw purge [--force] [--fresh] [--yes]
+```
+
+<ParamField path="--force" type="flag">
+  Also delete the secrets store (`~/.secrets-engine/`) in addition to data directory
+</ParamField>
+
+<ParamField path="--fresh" type="flag">
+  Automatically re-run setup wizard after purging
+</ParamField>
+
+<ParamField path="--yes" type="flag">
+  Skip confirmation prompt (use with caution!)
+</ParamField>
+
+### What gets deleted
+
+<Tabs>
+  <Tab title="Without --force">
+    ```bash
+    ~/.tinyclaw/
+    ├── data/          # Config DB, agent DB, security DB
+    ├── heartware/     # Soul seed and identity
+    ├── learning/      # Learned patterns
+    └── audit/         # Audit logs
+    
+    Secrets preserved at ~/.secrets-engine/
+    ```
+  </Tab>
+  
+  <Tab title="With --force">
+    ```bash
+    ~/.tinyclaw/       # All data (same as above)
+    ~/.secrets-engine/ # Encrypted API keys and tokens
+    ```
+    
+    <Warning>
+    With `--force`, you'll need to re-enter your API key during the next setup.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### Safety Confirmation
+
+Purge requires you to type a confirmation phrase to prevent accidental deletion:
+
+<CodeGroup>
+```bash Example
+$ tinyclaw purge
+
+This will permanently delete the following data:
+
+  Data directory     /home/user/.tinyclaw
+    • data/            (config.db, agent.db, security.db + WAL/SHM files)
+    • learning/        (learned patterns)
+    • heartware/       (identity files + backups)
+    • audit/           (audit logs)
+
+  Secrets store       preserved (use --force to include)
+
+Type goodbye pixel my tiny claw friend to confirm purge
+› goodbye pixel my tiny claw friend
+
+✔ Purge complete
+
+  ✓ Data directory deleted
+  ○ Secrets store preserved
+
+Done! Run tinyclaw setup to reconfigure.
+```
+</CodeGroup>
+
+The confirmation phrase includes your soul's name (if available): `goodbye <name> my tiny claw friend`
+
+### Fresh Install Workflow
+
+Use `--fresh` to automatically restart setup after purging:
+
+```bash
+tinyclaw purge --fresh
+```
+
+This will:
+1. Purge all data (with confirmation)
+2. Immediately launch the setup wizard
+3. Walk you through configuration again
+
+Perfect for testing or starting completely fresh.
+
+<Card title="Next Steps" icon="arrow-right" href="/guides/working-with-channels">
+  Learn how to use channel plugins for Discord and other platforms
+</Card>

@@ -1,0 +1,444 @@
+---
+title: Friends Chat Channel Plugin
+description: Invite-based web chat for friends powered by FRIENDS.md
+---
+
+The Friends Chat Channel Plugin provides a web-based chat interface where friends can interact with your Tiny Claw agent. Friends are invited by the owner via conversational commands, and each friend receives a unique invite code to authenticate.
+
+## Plugin Metadata
+
+<ParamField path="id" type="string" default="@tinyclaw/plugin-channel-friends">
+  The unique plugin identifier
+</ParamField>
+
+<ParamField path="name" type="string" default="Friends Chat">
+  Human-readable plugin name
+</ParamField>
+
+<ParamField path="description" type="string">
+  Invite-based web chat for friends — powered by FRIENDS.md
+</ParamField>
+
+<ParamField path="type" type="string" default="channel">
+  Plugin type
+</ParamField>
+
+<ParamField path="version" type="string" default="2.0.0">
+  Current plugin version
+</ParamField>
+
+<ParamField path="channelPrefix" type="string" default="friend">
+  User ID prefix for friends (format: `friend:<username>`)
+</ParamField>
+
+## Setup
+
+### 1. Enable the Plugin
+
+```bash
+# Start Tiny Claw and ask the agent
+"Can you enable friends chat?"
+```
+
+Or add to your config:
+
+```json
+{
+  "channels.friends.enabled": true,
+  "plugins.enabled": [
+    "@tinyclaw/plugin-channel-friends"
+  ]
+}
+```
+
+### 2. Invite a Friend
+
+```bash
+# Ask the agent to invite someone
+"Invite my friend John to friends chat"
+
+# The agent will create an invite and provide a URL
+```
+
+### 3. Share the Invite
+
+Share the invite URL or code with your friend. When they open the link:
+1. The invite code is automatically consumed
+2. They receive a session cookie for authentication
+3. They can start chatting immediately
+
+## Configuration
+
+### Config Keys
+
+<ParamField path="channels.friends.enabled" type="boolean">
+  Enable/disable the Friends Chat plugin
+</ParamField>
+
+<ParamField path="channels.friends.port" type="number" default={3001}>
+  HTTP server port for the web chat interface
+</ParamField>
+
+<ParamField path="channels.friends.host" type="string" default="127.0.0.1">
+  Server hostname (can be overridden via `HOST` environment variable)
+</ParamField>
+
+<ParamField path="channels.friends.baseUrl" type="string">
+  Base URL for generating invite links. Defaults to `http://localhost:{port}` if not set.
+  Set this to your public URL when deploying: `https://yourdomain.com`
+</ParamField>
+
+### Database
+
+Friend data is stored in a SQLite database:
+
+<ParamField path="dataDir/data/friends.db" type="sqlite">
+  Stores friend profiles, invite codes, session tokens, and activity timestamps
+</ParamField>
+
+## Pairing Tools
+
+The plugin provides four owner-only tools for managing friend access:
+
+### `friends_chat_invite`
+
+Create a new friend and generate an invite link.
+
+<ParamField path="username" type="string" required>
+  Unique username for the friend (2-32 characters, lowercase alphanumeric + underscores).
+  This is permanent and identifies the friend in FRIENDS.md.
+</ParamField>
+
+<ParamField path="nickname" type="string">
+  Optional display name for the friend. Defaults to the username.
+  The friend can change this later.
+</ParamField>
+
+**Returns:** Invite URL, invite code, and usage instructions
+
+**Example:**
+
+```typescript
+await friends_chat_invite({
+  username: "john_smith",
+  nickname: "John"
+});
+// → Friend "John" (username: john_smith) created!
+//   Invite URL: http://localhost:3001/chat?invite=abc123xyz
+//   Invite code: abc123xyz
+```
+
+### `friends_chat_reinvite`
+
+Generate a new invite code for an existing friend. Use this when a friend switches browsers, clears cookies, or loses access.
+
+<ParamField path="username" type="string" required>
+  The username of the existing friend to re-invite
+</ParamField>
+
+**Returns:** New invite URL and code. The old session is invalidated.
+
+**Example:**
+
+```typescript
+await friends_chat_reinvite({ username: "john_smith" });
+// → New invite generated for "john_smith"!
+//   Invite URL: http://localhost:3001/chat?invite=def456uvw
+```
+
+### `friends_chat_revoke`
+
+Revoke a friend's access to the chat. Their session and invite code are immediately invalidated.
+
+<ParamField path="username" type="string" required>
+  The username of the friend to revoke
+</ParamField>
+
+**Returns:** Confirmation message
+
+**Example:**
+
+```typescript
+await friends_chat_revoke({ username: "john_smith" });
+// → Access revoked for "john_smith". Their session cookie and invite code have been invalidated.
+```
+
+### `friends_chat_list`
+
+List all registered friends and their status.
+
+**Parameters:** None
+
+**Returns:** Formatted list showing:
+- Username and nickname
+- Status (active, invite pending, or revoked)
+- Last seen timestamp
+
+**Example:**
+
+```typescript
+await friends_chat_list();
+// → **Registered Friends (3)**
+//   - **John** (@john_smith) — active, last seen: 3/1/2026, 2:30:00 PM
+//   - **Sarah** (@sarah_jones) — invite pending, last seen: Unknown
+//   - **Mike** (@mike_wilson) — revoked, last seen: 2/28/2026, 5:45:00 PM
+```
+
+## API Methods
+
+### `start(context: PluginRuntimeContext)`
+
+Initializes the Friends Chat server and starts listening for connections.
+
+<ParamField path="context" type="PluginRuntimeContext" required>
+  Runtime context providing:
+  - `enqueue()` - Queue messages to the agent
+  - `agentContext` - Agent configuration
+  - `secrets` - Secrets manager
+  - `configManager` - Config manager
+</ParamField>
+
+**Behavior:**
+- Checks if plugin is enabled
+- Initializes InviteStore with SQLite database
+- Creates HTTP server with WebSocket support
+- Loads embedded chat HTML interface
+- Routes all friend messages through `context.enqueue(userId, message)`
+- Logs server URL for access
+
+**Server Endpoints:**
+- `GET /chat` - Web chat interface
+- `GET /chat?invite=<code>` - Invite redemption + authentication
+- `POST /api/chat` - Send message to agent
+- `GET /api/stream` - Server-Sent Events for real-time updates
+
+### `sendToUser(userId: string, message: OutboundMessage)`
+
+Send a proactive message to a friend ("nudge").
+
+<ParamField path="userId" type="string" required>
+  Friend user ID in format `friend:<username>`
+</ParamField>
+
+<ParamField path="message" type="OutboundMessage" required>
+  Message object containing:
+  - `content` - Text content to send
+  - `source` - Source of the message (e.g., "background-agent")
+  - `priority` - Message priority level
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+**Behavior:**
+- Parses username from userId
+- Pushes message to user's active push connections
+- Logs warning if user has no active connections
+- Throws error if server is not running
+
+**Example:**
+
+```typescript
+await sendToUser("friend:john_smith", {
+  content: "Your report is ready for review!",
+  source: "task-agent",
+  priority: "normal"
+});
+```
+
+### `stop()`
+
+Gracefully shuts down the Friends Chat server.
+
+**Returns:** `Promise<void>`
+
+**Behavior:**
+- Stops HTTP server
+- Closes all WebSocket connections
+- Closes SQLite database
+- Logs shutdown
+
+### `getPairingTools(secrets, configManager)`
+
+Returns the four friend management tools for agent integration.
+
+<ParamField path="secrets" type="SecretsManagerInterface" required>
+  Secrets manager (not currently used by Friends plugin)
+</ParamField>
+
+<ParamField path="configManager" type="ConfigManagerInterface" required>
+  Config manager for plugin settings and base URL
+</ParamField>
+
+**Returns:** `Tool[]` - Array of friend management tools
+
+## Architecture
+
+### Authentication Flow
+
+1. **Owner invites friend**
+   - Agent calls `friends_chat_invite({ username: "john" })`
+   - Plugin generates random invite code
+   - Code stored in database with username
+
+2. **Friend clicks invite link**
+   - Opens `http://localhost:3001/chat?invite=abc123`
+   - Server validates invite code
+   - If valid: generates session token, sets cookie, deletes invite code
+   - Friend redirected to chat interface
+
+3. **Friend chats**
+   - All requests include session cookie
+   - Server validates session token
+   - Messages routed to agent as `friend:<username>`
+
+4. **Session lost**
+   - Friend clears cookies or switches browser
+   - Owner runs `friends_chat_reinvite({ username: "john" })`
+   - New invite code generated, old session invalidated
+
+### Message Routing
+
+All friend messages are routed through the agent loop with the `friend:` prefix:
+
+```typescript
+const userId = `friend:${username}`;
+const response = await context.enqueue(userId, messageContent);
+```
+
+The agent's authority system recognizes friends and applies the appropriate permissions (chat only, no system commands).
+
+### Real-time Updates
+
+The plugin supports Server-Sent Events (SSE) for real-time message delivery:
+
+```javascript
+// Client-side
+const eventSource = new EventSource('/api/stream');
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  if (data.type === 'text') {
+    appendMessage(data.content);
+  }
+};
+```
+
+## User ID Format
+
+Friends are identified with a prefixed format:
+
+```
+friend:<username>
+```
+
+**Example:** `friend:john_smith`
+
+This prefix:
+- Isolates friend sessions from other channels
+- Maps to the username stored in FRIENDS.md
+- Used for authority tier determination (friend vs owner)
+
+## Usage Examples
+
+### Owner Invites a Friend
+
+```typescript
+// Conversational approach
+User: "Invite my friend Sarah to chat"
+Agent: *calls friends_chat_invite({ username: "sarah", nickname: "Sarah" })*
+Agent: "I've created an invite for Sarah! Here's the link: http://localhost:3001/chat?invite=xyz789"
+
+// Direct tool call
+await friends_chat_invite({
+  username: "sarah_j",
+  nickname: "Sarah J."
+});
+```
+
+### Friend Loses Access
+
+```typescript
+User: "Sarah lost her invite link"
+Agent: *calls friends_chat_reinvite({ username: "sarah" })*
+Agent: "I've generated a new invite for Sarah: http://localhost:3001/chat?invite=abc123"
+```
+
+### Checking Friend Status
+
+```typescript
+User: "Who has access to friends chat?"
+Agent: *calls friends_chat_list()*
+Agent: "Here are your registered friends:
+- **Sarah J.** (@sarah_j) — active, last seen: 3/1/2026, 2:30:00 PM
+- **Mike** (@mike) — invite pending, last seen: Unknown"
+```
+
+### Revoking Access
+
+```typescript
+User: "Remove Mike's access"
+Agent: *calls friends_chat_revoke({ username: "mike" })*
+Agent: "Access revoked for Mike. His session has been invalidated."
+```
+
+## InviteStore
+
+The plugin uses a SQLite-backed InviteStore to manage friend data:
+
+```typescript
+interface Friend {
+  username: string;        // Unique, permanent identifier
+  nickname: string;        // Display name (changeable)
+  inviteCode: string | null;  // Single-use invite code
+  sessionToken: string | null; // Active session token
+  lastSeen: number;        // Unix timestamp
+}
+```
+
+**Methods:**
+- `createFriend(username, nickname?)` - Create new friend with invite
+- `regenerateInvite(username)` - Generate new invite, invalidate session
+- `revokeFriend(username)` - Clear invite and session
+- `listFriends()` - Get all friends with status
+- `exists(username)` - Check if username is taken
+
+## Security
+
+- **Single-use invites** - Each invite code can only be redeemed once
+- **Session cookies** - HTTP-only, secure cookies for authentication
+- **Username validation** - Only alphanumeric + underscores, 2-32 chars
+- **Owner-only tools** - All management tools protected by authority system
+- **Session invalidation** - Old sessions cleared when generating new invite
+- **Database isolation** - Friend data stored in dedicated SQLite file
+
+## FRIENDS.md Integration
+
+The Friends Chat plugin is designed to work with FRIENDS.md, a document where the agent stores notes about each friend:
+
+- Agent can recall friend preferences and history
+- Each friend has persistent identity via username
+- Agent treats friends differently than owner (chat only, no system commands)
+- Authority tier automatically determined by userId prefix
+
+## Error Handling
+
+- **Plugin not enabled:** Logs info message, no-op
+- **Database errors:** Propagates SQLite errors with context
+- **Invalid username:** Returns descriptive error message
+- **Duplicate username:** Suggests using `friends_chat_reinvite`
+- **User not found:** Clear error messages for revoke/reinvite
+- **No active connections:** Logs warning when pushing to offline friend
+- **Server not running:** Throws error if sendToUser called before start
+
+## Dependencies
+
+- `@tinyclaw/logger` - Logging utilities
+- `@tinyclaw/types` - Type definitions
+- Built-in `http` and `crypto` modules
+- SQLite3 (via better-sqlite3 or similar)
+
+## Related
+
+- [Discord Channel Plugin](/api/plugins/channel-discord)
+- [FRIENDS.md Specification](/concepts/heartware#friends-md)
+- [Authority System](/concepts/security#authority-tiers)
+- [Channel Plugins Overview](/concepts/plugins#channel-plugins)

@@ -1,0 +1,355 @@
+---
+title: '@tinyclaw/plugins'
+description: 'Config-driven plugin loader and validator for Tiny Claw'
+---
+
+## Overview
+
+The `@tinyclaw/plugins` package provides config-driven plugin discovery and loading for Tiny Claw. Plugins are dynamically imported by package name, validated, and grouped by type.
+
+### Design Principles
+
+- **Config-driven** — No filesystem scanning; plugins opt in via `plugins.enabled` config array
+- **Non-fatal failures** — Import errors are logged and skipped so the system boots normally
+- **Type safety** — Plugins are validated against the `TinyClawPlugin` interface
+- **Zero dependencies** — Pure TypeScript, no external deps
+
+### Plugin Types
+
+1. **Channel plugins** — Communication interfaces (Discord, Telegram, Slack, etc.)
+2. **Provider plugins** — LLM backends (OpenAI, Anthropic, Ollama, etc.)
+3. **Tools plugins** — Additional agent capabilities (custom tools)
+
+## Installation
+
+```bash
+bun add @tinyclaw/plugins
+```
+
+## Usage
+
+### Basic Setup
+
+```typescript
+import { loadPlugins } from '@tinyclaw/plugins';
+import { ConfigManager } from '@tinyclaw/config';
+
+const config = await ConfigManager.create();
+const plugins = await loadPlugins(config);
+
+console.log(plugins.channels);  // ChannelPlugin[]
+console.log(plugins.providers); // ProviderPlugin[]
+console.log(plugins.tools);     // ToolsPlugin[]
+```
+
+### Configuration
+
+Plugins are enabled via the `plugins.enabled` array in the config:
+
+```typescript
+// In user config (e.g., ~/.tinyclaw/config.json)
+{
+  "plugins": {
+    "enabled": [
+      "@tinyclaw/plugin-discord",
+      "@tinyclaw/plugin-ollama",
+      "@tinyclaw/plugin-web-tools"
+    ]
+  }
+}
+```
+
+### Accessing Loaded Plugins
+
+```typescript
+const plugins = await loadPlugins(config);
+
+// Iterate over channel plugins
+for (const channel of plugins.channels) {
+  console.log(`Channel: ${channel.name} (${channel.id})`);
+}
+
+// Find a specific provider
+const ollama = plugins.providers.find(p => p.id === 'ollama');
+if (ollama) {
+  console.log('Ollama provider loaded');
+}
+
+// Count tools plugins
+console.log(`Loaded ${plugins.tools.length} tools plugin(s)`);
+```
+
+### Plugin Structure
+
+All plugins must export a default object implementing the `TinyClawPlugin` interface:
+
+```typescript
+// Example plugin: @tinyclaw/plugin-example
+export default {
+  id: 'example',
+  name: 'Example Plugin',
+  type: 'tools',
+  version: '1.0.0',
+  
+  // Plugin-specific implementation...
+} satisfies TinyClawPlugin;
+```
+
+## API Reference
+
+### `loadPlugins(configManager)`
+
+Load all enabled plugins from the config.
+
+<ParamField path="configManager" type="ConfigManagerInterface" required>
+  Config manager instance used to read `plugins.enabled`.
+</ParamField>
+
+**Returns:** `Promise<LoadedPlugins>`
+
+```typescript
+interface LoadedPlugins {
+  channels: ChannelPlugin[];
+  providers: ProviderPlugin[];
+  tools: ToolsPlugin[];
+}
+```
+
+---
+
+### `LoadedPlugins`
+
+Grouped plugin instances by type.
+
+<ResponseField name="channels" type="ChannelPlugin[]">
+  Array of loaded channel plugins.
+</ResponseField>
+
+<ResponseField name="providers" type="ProviderPlugin[]">
+  Array of loaded provider plugins.
+</ResponseField>
+
+<ResponseField name="tools" type="ToolsPlugin[]">
+  Array of loaded tools plugins.
+</ResponseField>
+
+---
+
+### Plugin Validation
+
+The loader validates that each plugin:
+
+1. Has a default export
+2. Is an object (not primitive or function)
+3. Has required fields: `id`, `name`, `type`
+4. Has a valid type: `'channel'`, `'provider'`, or `'tools'`
+
+Plugins that fail validation are logged and skipped.
+
+## Plugin Types
+
+### Channel Plugin
+
+Communication interface plugin.
+
+```typescript
+interface ChannelPlugin extends TinyClawPlugin {
+  type: 'channel';
+  createChannel(config: ChannelConfig): Promise<Channel>;
+}
+```
+
+### Provider Plugin
+
+LLM backend plugin.
+
+```typescript
+interface ProviderPlugin extends TinyClawPlugin {
+  type: 'provider';
+  createProvider(config: ProviderConfig): Promise<Provider>;
+}
+```
+
+### Tools Plugin
+
+Agent tools plugin.
+
+```typescript
+interface ToolsPlugin extends TinyClawPlugin {
+  type: 'tools';
+  createTools(context: ToolContext): Promise<Tool[]>;
+}
+```
+
+### Base Plugin Interface
+
+```typescript
+interface TinyClawPlugin {
+  id: string;          // Unique identifier (e.g., 'discord', 'ollama')
+  name: string;        // Human-readable name
+  type: 'channel' | 'provider' | 'tools';
+  version?: string;    // Semver version
+  description?: string; // Short description
+}
+```
+
+## Error Handling
+
+Plugin loading is **non-fatal**. Errors are logged and skipped:
+
+```typescript
+const plugins = await loadPlugins(config);
+
+// If @tinyclaw/plugin-discord fails to load:
+// - Warning is logged
+// - plugins.channels will not include it
+// - Other plugins continue loading normally
+```
+
+Common failure scenarios:
+
+- **Module not found** — Plugin package not installed
+- **No default export** — Plugin doesn't export a default object
+- **Validation failure** — Missing required fields or invalid type
+- **Import error** — Syntax error or dependency issue in plugin code
+
+## Example: Creating a Plugin
+
+### Simple Tools Plugin
+
+```typescript
+// my-tools-plugin/index.ts
+import type { TinyClawPlugin, ToolsPlugin, Tool } from '@tinyclaw/types';
+
+const plugin: ToolsPlugin = {
+  id: 'my-tools',
+  name: 'My Custom Tools',
+  type: 'tools',
+  version: '1.0.0',
+  description: 'Custom tools for my workflow',
+
+  async createTools(context) {
+    const tools: Tool[] = [
+      {
+        name: 'greet',
+        description: 'Say hello to someone',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Name to greet' },
+          },
+          required: ['name'],
+        },
+        async execute(args) {
+          return `Hello, ${args.name}!`;
+        },
+      },
+    ];
+
+    return tools;
+  },
+};
+
+export default plugin;
+```
+
+### Publishing the Plugin
+
+```json
+// package.json
+{
+  "name": "@myorg/tinyclaw-plugin-my-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "peerDependencies": {
+    "@tinyclaw/types": "^2.0.0"
+  }
+}
+```
+
+### Using the Plugin
+
+```typescript
+// Install
+// bun add @myorg/tinyclaw-plugin-my-tools
+
+// Enable in config
+{
+  "plugins": {
+    "enabled": [
+      "@myorg/tinyclaw-plugin-my-tools"
+    ]
+  }
+}
+
+// Load
+const plugins = await loadPlugins(config);
+const myTools = plugins.tools.find(p => p.id === 'my-tools');
+```
+
+## Best Practices
+
+1. **Use descriptive IDs** — Plugin IDs should be unique and descriptive:
+   ```typescript
+   // Good
+   id: 'my-company-custom-tools'
+   
+   // Avoid
+   id: 'plugin'
+   ```
+
+2. **Handle config gracefully** — Plugins should provide sensible defaults:
+   ```typescript
+   async createTools(context) {
+     const config = context.config ?? {};
+     const timeout = config.timeout ?? 30000;
+     // ...
+   }
+   ```
+
+3. **Log important events** — Use the logger for diagnostics:
+   ```typescript
+   import { logger } from '@tinyclaw/logger';
+   
+   async createTools(context) {
+     logger.info('Initializing my-tools plugin');
+     // ...
+   }
+   ```
+
+4. **Export TypeScript types** — Help consumers with type safety:
+   ```typescript
+   export interface MyToolsConfig {
+     apiKey?: string;
+     timeout?: number;
+   }
+   
+   export default plugin;
+   ```
+
+5. **Document plugin requirements** — Make setup clear in README:
+   ```markdown
+   ## Requirements
+   
+   - API key (set via `store_secret` tool: `plugin.my-tools.apiKey`)
+   - Minimum Tiny Claw version: 2.0.0
+   ```
+
+## Debugging
+
+To see detailed plugin loading logs:
+
+```typescript
+import { logger, setLogMode } from '@tinyclaw/logger';
+
+setLogMode('debug');
+
+const plugins = await loadPlugins(config);
+// Logs:
+// 🔌 Loading plugins { count: 3, ids: [...] }
+// 🔌 Loaded channel plugin: Discord (discord)
+// ⚠️  Plugin "@broken/plugin" has no default export — skipping
+// ...
+```

@@ -1,0 +1,513 @@
+---
+title: Ollama Provider
+description: Built-in LLM provider for Ollama Cloud models
+---
+
+The Ollama Provider is Tiny Claw's built-in LLM provider that connects to Ollama Cloud or local Ollama instances. It serves as the default and fallback provider, supporting all core features including tool calling, streaming, and reasoning models.
+
+## Provider Metadata
+
+<ParamField path="id" type="string" default="ollama-cloud">
+  The provider identifier used in config and routing
+</ParamField>
+
+<ParamField path="name" type="string">
+  Human-readable provider name, derived from the model tag (e.g., "Ollama Cloud (kimi-k2.5)")
+</ParamField>
+
+## Configuration
+
+### Config Keys
+
+<ParamField path="model" type="string" default="kimi-k2.5:cloud">
+  The Ollama model to use. Defaults to the recommended built-in model.
+</ParamField>
+
+<ParamField path="baseUrl" type="string" default="https://ollama.com">
+  Ollama API base URL. Use `https://ollama.com` for Ollama Cloud or `http://localhost:11434` for local.
+</ParamField>
+
+### Secret Keys
+
+<ParamField path="provider.ollama.apiKey" type="string" required>
+  Ollama Cloud API key. Required for cloud usage. Store with:
+  ```bash
+  store_secret key="provider.ollama.apiKey" value="sk-..."
+  ```
+</ParamField>
+
+## Built-in Models
+
+Tiny Claw ships with two built-in Ollama Cloud models:
+
+### kimi-k2.5:cloud
+
+<ParamField path="value" type="string" default="kimi-k2.5:cloud">
+  Model identifier
+</ParamField>
+
+<ParamField path="label" type="string" default="kimi-k2.5:cloud">
+  Display name
+</ParamField>
+
+<ParamField path="hint" type="string">
+  **Recommended** — Best for conversation, reasoning, and multimodal tasks
+</ParamField>
+
+This is the default model used during setup and serves as the primary model for most tasks.
+
+### gpt-oss:120b-cloud
+
+<ParamField path="value" type="string" default="gpt-oss:120b-cloud">
+  Model identifier
+</ParamField>
+
+<ParamField path="label" type="string" default="gpt-oss:120b-cloud">
+  Display name
+</ParamField>
+
+<ParamField path="hint" type="string">
+  Best for structured tasks, coding, and admin operations
+</ParamField>
+
+Optimal for code generation, structured data processing, and system administration tasks.
+
+## API Methods
+
+### `chat(messages: Message[], tools?: Tool[])`
+
+Send a chat completion request to the Ollama API.
+
+<ParamField path="messages" type="Message[]" required>
+  Array of conversation messages with `role` and `content`:
+  ```typescript
+  interface Message {
+    role: 'system' | 'user' | 'assistant' | 'tool';
+    content: string;
+    name?: string;  // For tool results
+  }
+  ```
+</ParamField>
+
+<ParamField path="tools" type="Tool[]">
+  Optional array of tools the model can invoke:
+  ```typescript
+  interface Tool {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+    execute(args: Record<string, unknown>): Promise<string>;
+  }
+  ```
+</ParamField>
+
+**Returns:** `Promise<LLMResponse>`
+
+```typescript
+type LLMResponse = 
+  | { type: 'text'; content: string }
+  | { type: 'tool_calls'; content?: string; toolCalls: ToolCall[] };
+
+interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+```
+
+**Example:**
+
+```typescript
+const response = await provider.chat([
+  { role: 'system', content: 'You are a helpful assistant.' },
+  { role: 'user', content: 'What is the capital of France?' }
+]);
+
+if (response.type === 'text') {
+  console.log(response.content);
+  // → "The capital of France is Paris."
+}
+```
+
+**With Tools:**
+
+```typescript
+const response = await provider.chat(
+  [
+    { role: 'system', content: 'You are a helpful assistant with access to tools.' },
+    { role: 'user', content: 'What is 15 * 23?' }
+  ],
+  [
+    {
+      name: 'calculate',
+      description: 'Perform arithmetic operations',
+      parameters: {
+        type: 'object',
+        properties: {
+          operation: { type: 'string', enum: ['add', 'subtract', 'multiply', 'divide'] },
+          a: { type: 'number' },
+          b: { type: 'number' }
+        },
+        required: ['operation', 'a', 'b']
+      },
+      async execute(args) {
+        // Implementation
+      }
+    }
+  ]
+);
+
+if (response.type === 'tool_calls') {
+  console.log(response.toolCalls);
+  // → [{ id: '...', name: 'calculate', arguments: { operation: 'multiply', a: 15, b: 23 } }]
+}
+```
+
+### `isAvailable()`
+
+Check if the provider is available and properly authenticated.
+
+**Returns:** `Promise<boolean>`
+
+**Behavior:**
+- Resolves API key from config or secrets
+- Sends ping message to `/api/chat` endpoint
+- Returns `true` if response is successful
+- Returns `false` if provider is unreachable
+- **Throws** if authentication fails (401/403)
+
+**Example:**
+
+```typescript
+try {
+  const available = await provider.isAvailable();
+  if (available) {
+    console.log('Provider is ready');
+  } else {
+    console.log('Provider is down or unreachable');
+  }
+} catch (err) {
+  console.error('Authentication failed:', err.message);
+  // → "Authentication failed (401): Invalid API key"
+}
+```
+
+## Factory Function
+
+### `createOllamaProvider(config: OllamaConfig)`
+
+Create an Ollama provider instance.
+
+<ParamField path="config.apiKey" type="string">
+  Explicit API key. If not provided, the provider will resolve `provider.ollama.apiKey` from secrets at call time.
+</ParamField>
+
+<ParamField path="config.secrets" type="SecretsManager">
+  Secrets manager for API key resolution. Required if `apiKey` is not explicitly provided.
+</ParamField>
+
+<ParamField path="config.model" type="string" default="kimi-k2.5:cloud">
+  Model to use for completions
+</ParamField>
+
+<ParamField path="config.baseUrl" type="string" default="https://ollama.com">
+  Ollama API base URL
+</ParamField>
+
+**Returns:** `Provider`
+
+**Example:**
+
+```typescript
+import { createOllamaProvider } from '@tinyclaw/core';
+import { createSecretsManager } from '@tinyclaw/secrets';
+
+const secrets = createSecretsManager({ dataDir: './data' });
+
+const provider = createOllamaProvider({
+  secrets,
+  model: 'gpt-oss:120b-cloud',
+  baseUrl: 'https://ollama.com'
+});
+
+const response = await provider.chat([
+  { role: 'user', content: 'Hello!' }
+]);
+```
+
+## Tool Calling
+
+The Ollama Provider supports native tool calling via the Ollama API.
+
+### Request Format
+
+Tools are converted to Ollama's function calling format:
+
+```typescript
+{
+  model: 'kimi-k2.5:cloud',
+  messages: [...],
+  tools: [
+    {
+      type: 'function',
+      function: {
+        name: 'tool_name',
+        description: 'Tool description',
+        parameters: { /* JSON Schema */ }
+      }
+    }
+  ]
+}
+```
+
+### Response Parsing
+
+The provider handles three response formats:
+
+1. **Native tool calls** (highest priority):
+   ```json
+   {
+     "message": {
+       "tool_calls": [
+         {
+           "function": {
+             "name": "tool_name",
+             "arguments": { /* object or JSON string */ }
+           }
+         }
+       ]
+     }
+   }
+   ```
+
+2. **Text content**:
+   ```json
+   {
+     "message": { "content": "Response text" }
+   }
+   ```
+
+3. **Fallback extraction** (reasoning models):
+   If `content` is empty, the provider attempts to extract tool calls from the `thinking` field:
+   ```json
+   {
+     "message": {
+       "thinking": "I should use {\"action\": \"search\", \"query\": \"Paris\"}"
+     }
+   }
+   ```
+
+### Tool Call ID Generation
+
+Ollama API responses don't include tool call IDs, so the provider generates them:
+
+```typescript
+{
+  id: crypto.randomUUID(),  // Generated
+  name: toolCall.function.name,
+  arguments: /* parsed from response */
+}
+```
+
+## Provider Registry Integration
+
+The Ollama Provider serves as the **ultimate fallback** in Tiny Claw's provider registry:
+
+```typescript
+const registry = createProviderRegistry({
+  providers: [ollamaProvider, openaiProvider],
+  tierMapping: {
+    simple: 'ollama-cloud',
+    moderate: 'ollama-cloud',
+    complex: 'openai-gpt4',
+    reasoning: 'ollama-cloud'
+  },
+  fallbackProviderId: 'ollama-cloud'  // Always available
+});
+
+// If openai-gpt4 is unavailable, falls back to ollama-cloud
+const provider = registry.getForTier('complex');
+```
+
+## Error Handling
+
+The provider includes comprehensive error handling:
+
+### Missing API Key
+
+```typescript
+try {
+  await provider.chat([...]);
+} catch (err) {
+  console.error(err.message);
+  // → "No API key available for Ollama. Store one with: store_secret key=\"provider.ollama.apiKey\" value=\"sk-...\""
+}
+```
+
+### API Errors
+
+```typescript
+try {
+  await provider.chat([...]);
+} catch (err) {
+  console.error(err.message);
+  // → "Ollama API error: 401 Unauthorized — Invalid API key"
+}
+```
+
+### Authentication Failures
+
+```typescript
+try {
+  await provider.isAvailable();
+} catch (err) {
+  console.error(err.message);
+  // → "Authentication failed (401): Invalid or expired API key"
+}
+```
+
+## Debugging
+
+The provider logs debug information for troubleshooting:
+
+```typescript
+import { logger } from '@tinyclaw/logger';
+
+logger.setLevel('debug');
+
+const response = await provider.chat([...]);
+// Logs:
+// → "Raw API response: {\"message\":{\"content\":\"...\"}}"
+// → "Ollama tool_calls detected { count: 2 }"
+// → "Content empty, checking thinking field for tool calls"
+// → "Extracted tool call from thinking field { tool: 'search' }"
+```
+
+## Local Ollama Usage
+
+To use a local Ollama instance instead of Ollama Cloud:
+
+```typescript
+const provider = createOllamaProvider({
+  baseUrl: 'http://localhost:11434',
+  model: 'llama3.2',
+  apiKey: 'not-required-for-local'  // Local Ollama doesn't need auth
+});
+```
+
+<Note>
+  When using local Ollama, the API key requirement is bypassed. Ensure your local instance is running on the specified port.
+</Note>
+
+## Response Format Compatibility
+
+The provider supports multiple response formats for compatibility:
+
+### Ollama Format
+
+```json
+{
+  "message": { "content": "..." },
+  "done": true
+}
+```
+
+### OpenAI Format
+
+```json
+{
+  "choices": [
+    { "message": { "content": "..." } }
+  ]
+}
+```
+
+### Simple Format
+
+```json
+{
+  "response": "..."
+}
+```
+
+All formats are automatically detected and normalized to `LLMResponse`.
+
+## Streaming Support
+
+<Warning>
+  Streaming is currently disabled (`stream: false` in requests). Streaming support is planned for a future release.
+</Warning>
+
+## Performance
+
+- **Latency:** Depends on model and Ollama instance (cloud vs local)
+- **Rate Limits:** Subject to Ollama Cloud rate limits (check your plan)
+- **Retry Logic:** No automatic retries - handle in calling code
+- **Timeout:** Default fetch timeout applies (usually 30s)
+
+## Usage in Tiny Claw
+
+The Ollama Provider is automatically initialized during Tiny Claw startup:
+
+```typescript
+// In core/src/index.ts
+const ollamaProvider = createOllamaProvider({
+  secrets: secretsManager,
+  model: configManager.get('model') || DEFAULT_MODEL,
+  baseUrl: configManager.get('baseUrl') || DEFAULT_BASE_URL
+});
+
+const agentContext = createAgentContext({
+  provider: ollamaProvider,
+  // ...
+});
+```
+
+## Model Switching
+
+Users can switch models via the `builtin_model_switch` tool:
+
+```typescript
+// Owner asks: "Switch to gpt-oss model"
+Agent: *calls builtin_model_switch({ model: 'gpt-oss:120b-cloud' })*
+Agent: "Model switched to gpt-oss:120b-cloud. Restarting..."
+```
+
+The provider is re-initialized with the new model after restart.
+
+## Constants
+
+```typescript
+// From packages/core/src/models.ts
+export const DEFAULT_MODEL = 'kimi-k2.5:cloud';
+export const DEFAULT_BASE_URL = 'https://ollama.com';
+export const DEFAULT_PROVIDER = 'ollama';
+
+export const BUILTIN_MODELS = [
+  {
+    value: 'kimi-k2.5:cloud',
+    label: 'kimi-k2.5:cloud',
+    hint: 'recommended — best for conversation, reasoning, and multimodal tasks'
+  },
+  {
+    value: 'gpt-oss:120b-cloud',
+    label: 'gpt-oss:120b-cloud',
+    hint: 'best for structured tasks, coding, and admin operations'
+  }
+];
+```
+
+## Dependencies
+
+- `@tinyclaw/logger` - Logging utilities
+- `@tinyclaw/secrets` - Secrets management for API keys
+- `@tinyclaw/types` - Type definitions
+- Built-in `fetch` - HTTP client
+- Built-in `crypto` - UUID generation
+
+## Related
+
+- [Provider Registry](/api/core/provider-registry)
+- [OpenAI Provider Plugin](/api/plugins/openai-provider)
+- [Secrets Manager](/api/core/secrets)
+- [Model Configuration](/guides/configuration#model-settings)

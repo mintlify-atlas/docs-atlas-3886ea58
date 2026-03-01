@@ -1,0 +1,453 @@
+---
+title: '@tinyclaw/learning'
+description: 'Pattern learning engine for adaptive agent behavior'
+---
+
+# @tinyclaw/learning
+
+Pattern learning engine that analyzes conversations to detect user preferences, corrections, and successful patterns. Automatically adapts agent behavior over time.
+
+## Installation
+
+```bash
+npm install @tinyclaw/learning
+```
+
+## Core Concepts
+
+**Learning** in Tiny Claw is about detecting implicit signals from conversation:
+
+- **Preferences**: User likes/dislikes ("I prefer concise responses")
+- **Corrections**: User corrects agent mistakes ("Actually, it's UTC+08:00")
+- **Patterns**: What works well ("User likes code examples")
+- **Signals**: Positive/negative feedback from conversation tone
+
+### Learning Flow
+
+1. **Analyze** each user-assistant exchange
+2. **Detect** signals (preference, correction, positive, negative)
+3. **Store** patterns with confidence scores
+4. **Inject** learned context into system prompt
+5. **Adapt** behavior based on high-confidence patterns
+
+## Main Exports
+
+### Learning Engine
+
+#### `createLearningEngine(config: LearningEngineConfig): LearningEngine`
+
+Create a learning engine.
+
+<ParamField path="config.storagePath" type="string" required>
+  Path to store learned patterns (JSON file)
+</ParamField>
+
+<ParamField path="config.minConfidence" type="number">
+  Minimum confidence threshold (default: 0.7)
+</ParamField>
+
+```typescript
+import { createLearningEngine } from '@tinyclaw/learning';
+
+const learning = createLearningEngine({
+  storagePath: '/path/to/data/patterns.json',
+  minConfidence: 0.7,
+});
+```
+
+### Methods
+
+#### `analyze(userMessage, assistantMessage, history): void`
+
+Analyze a conversation exchange and extract learning signals.
+
+<ParamField path="userMessage" type="string" required>
+  User's message
+</ParamField>
+
+<ParamField path="assistantMessage" type="string" required>
+  Assistant's response
+</ParamField>
+
+<ParamField path="history" type="Message[]" required>
+  Conversation history for context
+</ParamField>
+
+```typescript
+learning.analyze(
+  'Can you be more concise?',
+  'Sure, I\'ll keep my responses shorter.',
+  history
+);
+
+// Learning engine detects:
+// - Signal type: 'preference'
+// - Confidence: 0.85
+// - Learned: 'User prefers concise responses'
+```
+
+**Detection Heuristics:**
+
+- **Preference**: "I prefer...", "I like...", "Can you..."
+- **Correction**: "Actually...", "No, it's...", "That's wrong..."
+- **Positive**: "Thanks!", "Great!", "Perfect!", "Exactly!"
+- **Negative**: "That's not what I asked", "This is wrong", "Try again"
+
+#### `getContext(): LearnedContext`
+
+Get learned context for injection into system prompt.
+
+<ResponseField name="context" type="LearnedContext">
+  Learned preferences, patterns, and recent corrections
+</ResponseField>
+
+```typescript
+const context = learning.getContext();
+
+console.log(context.preferences);
+// "- User prefers concise responses\n- User likes code examples"
+
+console.log(context.patterns);
+// "- Works well: Provide step-by-step instructions"
+
+console.log(context.recentCorrections);
+// "- User corrected timezone to UTC+08:00"
+```
+
+**LearnedContext:**
+```typescript
+interface LearnedContext {
+  preferences: string;       // Bullet list of preferences
+  patterns: string;          // Bullet list of successful patterns
+  recentCorrections: string; // Recent corrections (last 5)
+}
+```
+
+#### `injectIntoPrompt(basePrompt, context): string`
+
+Inject learned context into system prompt.
+
+<ParamField path="basePrompt" type="string" required>
+  Base system prompt
+</ParamField>
+
+<ParamField path="context" type="LearnedContext" required>
+  Learned context from `getContext()`
+</ParamField>
+
+<ResponseField name="enrichedPrompt" type="string">
+  System prompt with learned context appended
+</ResponseField>
+
+```typescript
+const basePrompt = 'You are a helpful AI assistant.';
+const context = learning.getContext();
+const enrichedPrompt = learning.injectIntoPrompt(basePrompt, context);
+
+// enrichedPrompt includes:
+// "\n\n## Learned About This User\n\n### Preferences\n- ..."
+```
+
+#### `getStats(): { totalPatterns, highConfidencePatterns }`
+
+Get learning engine statistics.
+
+```typescript
+const stats = learning.getStats();
+console.log(`Total patterns: ${stats.totalPatterns}`);
+console.log(`High confidence: ${stats.highConfidencePatterns}`);
+```
+
+## Types
+
+### `LearningEngine`
+
+```typescript
+interface LearningEngine {
+  analyze(userMessage: string, assistantMessage: string, history: Message[]): void;
+  getContext(): LearnedContext;
+  injectIntoPrompt(basePrompt: string, context: LearnedContext): string;
+  getStats(): { totalPatterns: number; highConfidencePatterns: number };
+}
+```
+
+### `LearnedContext`
+
+```typescript
+interface LearnedContext {
+  preferences: string;       // User preferences
+  patterns: string;          // Successful interaction patterns
+  recentCorrections: string; // Recent corrections
+}
+```
+
+### `Signal` (Internal)
+
+```typescript
+interface Signal {
+  type: 'positive' | 'negative' | 'correction' | 'preference';
+  confidence: number;   // 0.0-1.0
+  context: string;      // What was said
+  learned?: string;     // What was learned
+  timestamp: number;
+}
+```
+
+### `Pattern` (Internal)
+
+```typescript
+interface Pattern {
+  category: string;      // e.g., 'preference_general', 'correction_general'
+  preference: string;    // The learned preference/pattern
+  confidence: number;    // 0.0-1.0
+  examples: string[];    // Example contexts (last 10)
+  lastUpdated: number;
+}
+```
+
+## Example Usage
+
+### Basic Learning
+
+```typescript
+import { createLearningEngine } from '@tinyclaw/learning';
+
+const learning = createLearningEngine({
+  storagePath: '/home/user/.tinyclaw/data/patterns.json',
+  minConfidence: 0.7,
+});
+
+// Analyze a conversation
+learning.analyze(
+  'I prefer dark mode',
+  'Got it! I\'ll remember you prefer dark mode.',
+  history
+);
+
+// Get learned context
+const context = learning.getContext();
+console.log(context.preferences);
+// "- User prefers dark mode"
+```
+
+### Integration with Agent Loop
+
+```typescript
+import { agentLoop } from '@tinyclaw/core';
+import { createLearningEngine } from '@tinyclaw/learning';
+
+const learning = createLearningEngine({
+  storagePath: '/path/to/patterns.json',
+});
+
+const agentContext = {
+  db,
+  provider,
+  learning, // Learning engine is automatically used
+  tools,
+};
+
+// Agent loop automatically:
+// 1. Calls learning.getContext() before processing
+// 2. Calls learning.injectIntoPrompt() to enrich system prompt
+// 3. Calls learning.analyze() after each exchange (async)
+await agentLoop('Can you be more concise?', 'web:owner', agentContext);
+```
+
+### Manual Context Injection
+
+```typescript
+import { createLearningEngine } from '@tinyclaw/learning';
+
+const learning = createLearningEngine({ storagePath: '/path/to/patterns.json' });
+
+// Build system prompt
+const basePrompt = 'You are a helpful AI assistant.';
+const learnedContext = learning.getContext();
+const systemPrompt = learning.injectIntoPrompt(basePrompt, learnedContext);
+
+// Use with LLM
+const response = await provider.chat(
+  [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: 'Hello!' },
+  ],
+  tools
+);
+```
+
+### Monitoring Learning Progress
+
+```typescript
+import { createLearningEngine } from '@tinyclaw/learning';
+
+const learning = createLearningEngine({ storagePath: '/path/to/patterns.json' });
+
+// Check stats
+const stats = learning.getStats();
+console.log(`Learning stats:`);
+console.log(`  Total patterns: ${stats.totalPatterns}`);
+console.log(`  High confidence: ${stats.highConfidencePatterns}`);
+
+// Get context
+const context = learning.getContext();
+if (context.preferences) {
+  console.log('\nLearned preferences:');
+  console.log(context.preferences);
+}
+
+if (context.recentCorrections) {
+  console.log('\nRecent corrections:');
+  console.log(context.recentCorrections);
+}
+```
+
+### Custom Signal Detection
+
+```typescript
+import { createLearningEngine } from '@tinyclaw/learning';
+
+const learning = createLearningEngine({ storagePath: '/path/to/patterns.json' });
+
+// Analyze multiple exchanges
+const conversations = [
+  { user: 'I prefer concise responses', agent: 'Got it!' },
+  { user: 'Can you add more details?', agent: 'Sure, here\'s more...' },
+  { user: 'Actually, the timezone is UTC+08:00', agent: 'Updated!' },
+];
+
+for (const conv of conversations) {
+  learning.analyze(conv.user, conv.agent, history);
+}
+
+const context = learning.getContext();
+console.log(context.preferences);
+console.log(context.recentCorrections);
+```
+
+## Signal Detection Examples
+
+### Preferences
+
+```typescript
+// Detected as preference (confidence: 0.9)
+"I prefer concise responses"
+"I like code examples"
+"Can you use 24-hour time format?"
+"Please include sources"
+```
+
+### Corrections
+
+```typescript
+// Detected as correction (confidence: 0.95)
+"Actually, it's UTC+08:00"
+"No, the capital is Manila"
+"That's incorrect - the answer is 42"
+"You got the date wrong"
+```
+
+### Positive Signals
+
+```typescript
+// Detected as positive (confidence: 0.8)
+"Thanks!"
+"Perfect!"
+"Exactly what I needed"
+"Great explanation"
+"This is helpful"
+```
+
+### Negative Signals
+
+```typescript
+// Detected as negative (confidence: 0.85)
+"That's not what I asked"
+"This is wrong"
+"Try again"
+"No, that's not it"
+```
+
+## Confidence Scoring
+
+**Confidence = Base Confidence × Context Modifier**
+
+- **Base confidence**: Determined by signal strength
+  - Explicit: 0.9 ("I prefer...")
+  - Implicit: 0.7 ("Can you...?")
+  - Weak: 0.5 (tone-based)
+
+- **Context modifiers**:
+  - Repeated signal: +0.1 per occurrence (up to 1.0)
+  - Contradictory signal: -0.2
+  - Time decay: -0.05 per 30 days
+
+**Confidence Updates:**
+- New signal: `confidence = signal.confidence`
+- Existing pattern: `confidence = old × 0.7 + new × 0.3`
+
+## Storage Format
+
+Patterns are stored in `patterns.json`:
+
+```json
+[
+  {
+    "category": "preference_general",
+    "preference": "User prefers concise responses",
+    "confidence": 0.85,
+    "examples": [
+      "Can you be more concise?",
+      "Keep it short please"
+    ],
+    "lastUpdated": 1709280000000
+  },
+  {
+    "category": "correction_general",
+    "preference": "Timezone is UTC+08:00",
+    "confidence": 0.95,
+    "examples": [
+      "Actually, it's UTC+08:00"
+    ],
+    "lastUpdated": 1709280000000
+  }
+]
+```
+
+## Best Practices
+
+1. **Set appropriate minConfidence** - Higher = stricter (0.7-0.8 recommended)
+2. **Analyze every exchange** - More data = better learning
+3. **Combine with memory engine** - Learning + memory = complete context
+4. **Monitor stats** - Check learning progress periodically
+5. **Handle contradictions** - Allow users to change preferences
+6. **Respect corrections** - Corrections have highest priority
+7. **Time decay** - Old patterns naturally fade
+
+## Performance
+
+- **Analysis**: ~2-5ms per exchange
+- **Context retrieval**: &lt;1ms
+- **Prompt injection**: &lt;1ms
+- **Storage**: ~1KB per pattern
+- **Memory usage**: ~10KB for 100 patterns
+
+## Comparison: Learning vs Memory
+
+| Feature | Learning | Memory |
+|---------|----------|--------|
+| **Purpose** | Behavior adaptation | Context retrieval |
+| **Storage** | Patterns (JSON) | Events (SQLite) |
+| **Scope** | User preferences | Task outcomes |
+| **Lifetime** | Permanent | Temporal decay |
+| **Use case** | "How to respond" | "What happened" |
+
+**Use both together** for complete adaptive behavior:
+- **Learning**: "User prefers concise responses" (how)
+- **Memory**: "User asked about timezone 3 days ago" (what)
+
+## Related Packages
+
+- [@tinyclaw/core](/api/core) - Core agent runtime with learning integration
+- [@tinyclaw/types](/api/types) - Type definitions
+- [@tinyclaw/memory](/api/memory) - Episodic memory engine

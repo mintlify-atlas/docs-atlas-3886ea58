@@ -1,0 +1,592 @@
+---
+title: Provider Plugins
+description: Create provider plugins to add new LLM providers to Tiny Claw
+---
+
+## Overview
+
+Provider plugins add new LLM providers to Tiny Claw's smart routing system. They implement the `Provider` interface to communicate with AI model APIs and participate in tier-based query routing.
+
+## ProviderPlugin Interface
+
+Provider plugins implement the `ProviderPlugin` interface from `@tinyclaw/types`:
+
+```typescript
+interface ProviderPlugin extends PluginMeta {
+  readonly type: 'provider';
+  
+  /** Create and return an initialized Provider instance */
+  createProvider(secrets: SecretsManagerInterface): Promise<Provider>;
+  
+  /** Optional pairing tools for conversational setup */
+  getPairingTools?(
+    secrets: SecretsManagerInterface,
+    configManager: ConfigManagerInterface
+  ): Tool[];
+}
+```
+
+### Interface Fields
+
+<ParamField path="type" type="'provider'" required>
+  Must be `'provider'` for provider plugins
+</ParamField>
+
+<ParamField path="createProvider" type="function" required>
+  Factory method that creates a configured Provider instance.
+  
+  **Parameters:**
+  - `secrets: SecretsManagerInterface` - For retrieving API keys
+  
+  **Returns:** `Promise<Provider>` - Initialized provider
+</ParamField>
+
+<ParamField path="getPairingTools" type="function">
+  Optional method that returns tools for conversational configuration.
+  
+  **Parameters:**
+  - `secrets: SecretsManagerInterface` - For storing API keys
+  - `configManager: ConfigManagerInterface` - For storing settings
+  
+  **Returns:** `Tool[]`
+</ParamField>
+
+## Provider Interface
+
+The `Provider` interface defines the contract for LLM communication:
+
+```typescript
+interface Provider {
+  /** Unique provider identifier (e.g., 'openai', 'anthropic') */
+  id: string;
+  
+  /** Human-readable name (e.g., 'OpenAI (gpt-4.1)') */
+  name: string;
+  
+  /** Send a chat completion request */
+  chat(messages: Message[], tools?: Tool[]): Promise<LLMResponse>;
+  
+  /** Check if the provider is currently available */
+  isAvailable(): Promise<boolean>;
+}
+```
+
+<ParamField path="id" type="string" required>
+  Unique identifier used in tier mapping configuration
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Display name shown in logs and UI
+</ParamField>
+
+<ParamField path="chat" type="function" required>
+  Core method for LLM inference.
+  
+  **Parameters:**
+  - `messages: Message[]` - Conversation history
+  - `tools?: Tool[]` - Available tools for function calling
+  
+  **Returns:** `Promise<LLMResponse>` - Text or tool calls
+</ParamField>
+
+<ParamField path="isAvailable" type="function" required>
+  Health check method to verify provider availability.
+  
+  **Returns:** `Promise<boolean>` - True if provider is ready
+</ParamField>
+
+## Message and Response Types
+
+### Message
+
+```typescript
+interface Message {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+}
+```
+
+<ParamField path="role" type="string" required>
+  Message role in conversation
+</ParamField>
+
+<ParamField path="content" type="string" required>
+  Message text content
+</ParamField>
+
+<ParamField path="toolCalls" type="ToolCall[]">
+  Tool calls made by the assistant (for `role: 'assistant'`)
+</ParamField>
+
+<ParamField path="toolCallId" type="string">
+  Reference to tool call being responded to (for `role: 'tool'`)
+</ParamField>
+
+### LLMResponse
+
+```typescript
+interface LLMResponse {
+  type: 'text' | 'tool_calls';
+  content?: string;
+  toolCalls?: ToolCall[];
+}
+```
+
+<ParamField path="type" type="'text' | 'tool_calls'" required>
+  Response discriminant
+</ParamField>
+
+<ParamField path="content" type="string">
+  Text response (when `type: 'text'`)
+</ParamField>
+
+<ParamField path="toolCalls" type="ToolCall[]">
+  Tool invocations (when `type: 'tool_calls'`)
+</ParamField>
+
+### ToolCall
+
+```typescript
+interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+```
+
+## Complete Example: OpenAI Provider Plugin
+
+### Plugin Entry Point
+
+```typescript
+// index.ts
+import type {
+  ConfigManagerInterface,
+  ProviderPlugin,
+  SecretsManagerInterface,
+  Tool,
+} from '@tinyclaw/types';
+import { createOpenAIPairingTools } from './pairing.js';
+import { createOpenAIProvider } from './provider.js';
+
+const openaiPlugin: ProviderPlugin = {
+  id: '@tinyclaw/plugin-provider-openai',
+  name: 'OpenAI',
+  description: 'OpenAI GPT models (GPT-4.1, GPT-4o, etc.)',
+  type: 'provider',
+  version: '0.1.0',
+
+  async createProvider(secrets: SecretsManagerInterface) {
+    return createOpenAIProvider({ secrets });
+  },
+
+  getPairingTools(
+    secrets: SecretsManagerInterface,
+    configManager: ConfigManagerInterface
+  ): Tool[] {
+    return createOpenAIPairingTools(secrets, configManager);
+  },
+};
+
+export default openaiPlugin;
+```
+
+### Provider Implementation
+
+```typescript
+// provider.ts
+import { logger } from '@tinyclaw/logger';
+import type {
+  LLMResponse,
+  Message,
+  Provider,
+  SecretsManagerInterface,
+  Tool,
+  ToolCall,
+} from '@tinyclaw/types';
+
+export interface OpenAIProviderConfig {
+  secrets: SecretsManagerInterface;
+  model?: string;
+  baseUrl?: string;
+}
+
+export function createOpenAIProvider(config: OpenAIProviderConfig): Provider {
+  const baseUrl = config.baseUrl || 'https://api.openai.com';
+  const model = config.model || 'gpt-4.1';
+
+  return {
+    id: 'openai',
+    name: `OpenAI (${model})`,
+
+    async chat(messages: Message[], tools?: Tool[]): Promise<LLMResponse> {
+      try {
+        const apiKey = await config.secrets.resolveProviderKey('openai');
+        if (!apiKey) {
+          throw new Error('No API key available for OpenAI');
+        }
+
+        const body: Record<string, unknown> = {
+          model,
+          messages: toOpenAIMessages(messages),
+        };
+
+        if (tools?.length) {
+          body.tools = toOpenAITools(tools);
+        }
+
+        const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(`OpenAI API error: ${response.status} - ${errorBody}`);
+        }
+
+        const data = await response.json();
+        const choice = data.choices?.[0]?.message;
+        
+        if (!choice) {
+          throw new Error('OpenAI API returned no choices');
+        }
+
+        // Tool calls response
+        if (choice.tool_calls?.length) {
+          return {
+            type: 'tool_calls',
+            content: choice.content ?? undefined,
+            toolCalls: parseToolCalls(choice.tool_calls),
+          };
+        }
+
+        // Text response
+        return {
+          type: 'text',
+          content: choice.content ?? '',
+        };
+      } catch (error) {
+        logger.error('OpenAI provider error:', error);
+        throw error;
+      }
+    },
+
+    async isAvailable(): Promise<boolean> {
+      try {
+        const apiKey = await config.secrets.resolveProviderKey('openai');
+        if (!apiKey) return false;
+
+        const response = await fetch(`${baseUrl}/v1/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        return response.ok;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+// Format conversion helpers
+function toOpenAIMessages(messages: Message[]) {
+  return messages.map((msg) => ({
+    role: msg.role,
+    content: msg.content ?? null,
+    tool_calls: msg.toolCalls?.map((tc) => ({
+      id: tc.id,
+      type: 'function' as const,
+      function: {
+        name: tc.name,
+        arguments: JSON.stringify(tc.arguments),
+      },
+    })),
+    tool_call_id: msg.toolCallId,
+  }));
+}
+
+function toOpenAITools(tools: Tool[]) {
+  return tools.map((t) => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }));
+}
+
+function parseToolCalls(raw: any[]): ToolCall[] {
+  return raw.map((tc) => ({
+    id: tc.id,
+    name: tc.function.name,
+    arguments: JSON.parse(tc.function.arguments),
+  }));
+}
+```
+
+### Pairing Tools
+
+```typescript
+// pairing.ts
+import type {
+  ConfigManagerInterface,
+  SecretsManagerInterface,
+  Tool
+} from '@tinyclaw/types';
+
+const OPENAI_SECRET_KEY = 'provider.openai.apiKey';
+const OPENAI_MODEL_CONFIG_KEY = 'providers.openai.model';
+const OPENAI_PLUGIN_ID = '@tinyclaw/plugin-provider-openai';
+const OPENAI_PROVIDER_ID = 'openai';
+
+export function createOpenAIPairingTools(
+  secrets: SecretsManagerInterface,
+  configManager: ConfigManagerInterface
+): Tool[] {
+  return [
+    {
+      name: 'openai_pair',
+      description: 'Pair Tiny Claw with OpenAI as a provider',
+      parameters: {
+        type: 'object',
+        properties: {
+          apiKey: {
+            type: 'string',
+            description: 'OpenAI API key (starts with sk-)',
+          },
+          model: {
+            type: 'string',
+            description: 'Model to use (default: gpt-4.1)',
+          },
+        },
+        required: ['apiKey'],
+      },
+      async execute(args: Record<string, unknown>): Promise<string> {
+        const apiKey = args.apiKey as string;
+        const model = (args.model as string) || 'gpt-4.1';
+
+        // Store API key
+        await secrets.store(OPENAI_SECRET_KEY, apiKey.trim());
+        
+        // Set model
+        configManager.set(OPENAI_MODEL_CONFIG_KEY, model);
+        
+        // Enable plugin
+        const current = configManager.get<string[]>('plugins.enabled') ?? [];
+        if (!current.includes(OPENAI_PLUGIN_ID)) {
+          configManager.set('plugins.enabled', [...current, OPENAI_PLUGIN_ID]);
+        }
+        
+        // Update tier mapping - route complex queries to OpenAI
+        configManager.set('routing.tierMapping.complex', OPENAI_PROVIDER_ID);
+        configManager.set('routing.tierMapping.reasoning', OPENAI_PROVIDER_ID);
+        
+        return `OpenAI provider paired! Model: ${model}. Use tinyclaw_restart to apply.`;
+      },
+    },
+    {
+      name: 'openai_unpair',
+      description: 'Disconnect OpenAI provider',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+      async execute(): Promise<string> {
+        // Disable plugin
+        const current = configManager.get<string[]>('plugins.enabled') ?? [];
+        configManager.set(
+          'plugins.enabled',
+          current.filter((id) => id !== OPENAI_PLUGIN_ID)
+        );
+        
+        // Reset tier mapping
+        const tiers = ['simple', 'moderate', 'complex', 'reasoning'] as const;
+        for (const tier of tiers) {
+          const key = `routing.tierMapping.${tier}`;
+          const val = configManager.get<string>(key);
+          if (val === OPENAI_PROVIDER_ID) {
+            configManager.set(key, 'ollama-cloud');
+          }
+        }
+        
+        return 'OpenAI disabled. Use tinyclaw_restart to apply.';
+      },
+    },
+  ];
+}
+```
+
+## Tier-Based Routing
+
+Providers participate in Tiny Claw's smart routing system based on query tiers:
+
+```typescript
+type QueryTier = 'simple' | 'moderate' | 'complex' | 'reasoning';
+```
+
+### Configuration
+
+Tier mapping is configured in `routing.tierMapping`:
+
+```json
+{
+  "routing": {
+    "tierMapping": {
+      "simple": "ollama-cloud",
+      "moderate": "ollama-cloud",
+      "complex": "openai",
+      "reasoning": "openai"
+    }
+  }
+}
+```
+
+### Best Practices
+
+- Use `openai_pair` to set tier mapping automatically
+- Route expensive queries to premium providers
+- Keep simple queries on local/free providers
+- Test routing with different query types
+
+## API Key Management
+
+Use the secrets manager for all credentials:
+
+```typescript
+// Store API key
+await secrets.store('provider.openai.apiKey', apiKey);
+
+// Retrieve API key
+const apiKey = await secrets.resolveProviderKey('openai');
+// Internally calls: secrets.retrieve('provider.openai.apiKey')
+```
+
+### Key Naming Convention
+
+```typescript
+import { buildProviderKeyName } from '@tinyclaw/types';
+
+const keyName = buildProviderKeyName('openai');
+// Returns: 'provider.openai.apiKey'
+```
+
+## Testing Your Provider Plugin
+
+### 1. Unit Tests
+
+Test message format conversion:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { toOpenAIMessages } from './provider.js';
+
+describe('toOpenAIMessages', () => {
+  it('converts tool calls correctly', () => {
+    const messages = [
+      {
+        role: 'assistant',
+        content: 'Calling tool',
+        toolCalls: [
+          {
+            id: 'call_1',
+            name: 'get_weather',
+            arguments: { city: 'SF' },
+          },
+        ],
+      },
+    ];
+    
+    const result = toOpenAIMessages(messages);
+    expect(result[0].tool_calls).toBeDefined();
+  });
+});
+```
+
+### 2. Integration Tests
+
+Test against real API:
+
+```typescript
+it('calls OpenAI API successfully', async () => {
+  const provider = createOpenAIProvider({ 
+    secrets: mockSecrets,
+    model: 'gpt-4.1' 
+  });
+  
+  const response = await provider.chat([
+    { role: 'user', content: 'Hello!' }
+  ]);
+  
+  expect(response.type).toBe('text');
+  expect(response.content).toBeDefined();
+});
+```
+
+### 3. Availability Tests
+
+```typescript
+it('checks availability correctly', async () => {
+  const provider = createOpenAIProvider({ secrets: mockSecrets });
+  const available = await provider.isAvailable();
+  expect(available).toBe(true);
+});
+```
+
+## Best Practices
+
+### Error Handling
+
+```typescript
+try {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`API error: ${response.status} - ${errorBody}`);
+  }
+  return await response.json();
+} catch (error) {
+  logger.error('Provider error:', error);
+  throw error; // Re-throw to let caller handle
+}
+```
+
+### Rate Limiting
+
+- Implement exponential backoff for retries
+- Respect API rate limits
+- Add request queuing if needed
+
+### Logging
+
+```typescript
+import { logger } from '@tinyclaw/logger';
+
+logger.debug('OpenAI request:', { model, messageCount: messages.length });
+logger.error('OpenAI error:', error);
+logger.info('OpenAI response received');
+```
+
+### Configuration
+
+- Support configurable base URLs (for proxies, Azure, etc.)
+- Allow model selection via config
+- Provide sensible defaults
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tools Plugins" icon="wrench" href="/plugins/tool-plugins">
+    Learn about tools plugins
+  </Card>
+  <Card title="Publishing" icon="upload" href="/plugins/publishing">
+    Publish your plugin to npm
+  </Card>
+</CardGroup>

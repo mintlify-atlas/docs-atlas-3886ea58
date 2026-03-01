@@ -1,0 +1,406 @@
+---
+title: '@tinyclaw/router'
+description: 'Query classification and multi-provider routing for Tiny Claw'
+---
+
+# @tinyclaw/router
+
+Intelligent query classification and multi-provider routing. Routes queries to the appropriate LLM provider based on complexity, context, and provider availability.
+
+## Installation
+
+```bash
+npm install @tinyclaw/router
+```
+
+## Core Concepts
+
+**Router** classifies user queries into tiers and routes them to the optimal provider:
+
+- **simple**: Basic queries (greetings, confirmations) → Fast, small models
+- **moderate**: Standard conversation → General-purpose models
+- **complex**: Multi-step tasks, code generation → Capable models
+- **reasoning**: Deep analysis, planning → Reasoning models (e.g., DeepSeek R1)
+
+## Main Exports
+
+### Query Classification
+
+#### `classifyQuery(query: string, context?: string[]): ClassificationResult`
+
+Classify a query into a complexity tier.
+
+<ParamField path="query" type="string" required>
+  The user's query
+</ParamField>
+
+<ParamField path="context" type="string[]">
+  Optional conversation history for context
+</ParamField>
+
+<ResponseField name="result" type="ClassificationResult">
+  Classification result with tier and confidence
+</ResponseField>
+
+```typescript
+import { classifyQuery } from '@tinyclaw/router';
+
+const result = classifyQuery('How do I optimize this SQL query?');
+console.log(result.tier);       // 'complex'
+console.log(result.confidence); // 0.85
+console.log(result.reasoning);  // 'Detected code optimization task'
+```
+
+**ClassificationResult:**
+```typescript
+interface ClassificationResult {
+  tier: QueryTier;      // 'simple' | 'moderate' | 'complex' | 'reasoning'
+  confidence: number;   // 0.0-1.0
+  reasoning: string;    // Why this tier was chosen
+}
+```
+
+**Classification Heuristics:**
+
+- **simple**: Greetings, yes/no, short questions (&lt;10 words)
+- **moderate**: Factual questions, basic conversation
+- **complex**: Code, math, multi-step tasks, tool usage
+- **reasoning**: Planning, analysis, decision-making, "why" questions
+
+### Provider Registry
+
+#### `createProviderRegistry(config: ProviderRegistryConfig): ProviderRegistry`
+
+Create a provider registry for tier-based routing.
+
+<ParamField path="config.tiers" type="Record<QueryTier, ProviderTierConfig>" required>
+  Provider configuration for each tier
+</ParamField>
+
+```typescript
+import { createProviderRegistry } from '@tinyclaw/router';
+
+const registry = createProviderRegistry({
+  tiers: {
+    simple: {
+      providers: [fastProvider],
+      fallback: moderateProvider,
+    },
+    moderate: {
+      providers: [defaultProvider],
+      fallback: fastProvider,
+    },
+    complex: {
+      providers: [capableProvider],
+      fallback: defaultProvider,
+    },
+    reasoning: {
+      providers: [reasoningProvider],
+      fallback: capableProvider,
+    },
+  },
+});
+```
+
+**Methods:**
+- `getProvider(tier)` - Get the primary provider for a tier
+- `getFallback(tier)` - Get the fallback provider for a tier
+- `register(tier, provider, options)` - Register a provider for a tier
+- `health()` - Check health of all registered providers
+
+### Provider Orchestrator
+
+#### `new ProviderOrchestrator(config: OrchestratorConfig)`
+
+Create an orchestrator that combines classification and routing.
+
+<ParamField path="config.registry" type="ProviderRegistry" required>
+  Provider registry
+</ParamField>
+
+<ParamField path="config.enableCaching" type="boolean">
+  Enable response caching (default: false)
+</ParamField>
+
+<ParamField path="config.enableRetry" type="boolean">
+  Enable automatic retry on failure (default: true)
+</ParamField>
+
+```typescript
+import { ProviderOrchestrator, createProviderRegistry } from '@tinyclaw/router';
+
+const registry = createProviderRegistry({ tiers: {...} });
+const orchestrator = new ProviderOrchestrator({
+  registry,
+  enableCaching: true,
+  enableRetry: true,
+});
+```
+
+#### `route(query, messages, tools?, context?): Promise<RouteResult>`
+
+Route a query to the optimal provider and get a response.
+
+<ParamField path="query" type="string" required>
+  The user's query
+</ParamField>
+
+<ParamField path="messages" type="Message[]" required>
+  Conversation messages
+</ParamField>
+
+<ParamField path="tools" type="Tool[]">
+  Available tools
+</ParamField>
+
+<ParamField path="context" type="string[]">
+  Additional context for classification
+</ParamField>
+
+<ResponseField name="result" type="RouteResult">
+  Routed result with response, provider info, and metadata
+</ResponseField>
+
+```typescript
+const result = await orchestrator.route(
+  'Write a function to parse JSON',
+  messages,
+  tools
+);
+
+console.log(result.response);        // LLM response
+console.log(result.tier);            // 'complex'
+console.log(result.provider);        // 'ollama-cloud'
+console.log(result.latencyMs);       // 1234
+console.log(result.fromCache);       // false
+```
+
+**RouteResult:**
+```typescript
+interface RouteResult {
+  response: LLMResponse;
+  tier: QueryTier;
+  provider: string;
+  classification: ClassificationResult;
+  latencyMs: number;
+  fromCache: boolean;
+  fallbackUsed: boolean;
+}
+```
+
+#### `health(): Promise<HealthRouteResult[]>`
+
+Check health of all registered providers.
+
+```typescript
+const healthResults = await orchestrator.health();
+
+for (const result of healthResults) {
+  console.log(`${result.tier}: ${result.provider} - ${result.healthy ? '✅' : '❌'}`);
+}
+```
+
+## Types
+
+### `QueryTier`
+
+```typescript
+type QueryTier = 'simple' | 'moderate' | 'complex' | 'reasoning';
+```
+
+### `ProviderTierConfig`
+
+```typescript
+interface ProviderTierConfig {
+  providers: Provider[];    // Primary providers (tried in order)
+  fallback?: Provider;      // Fallback if all primaries fail
+}
+```
+
+### `ProviderRegistry`
+
+```typescript
+interface ProviderRegistry {
+  getProvider(tier: QueryTier): Provider | null;
+  getFallback(tier: QueryTier): Provider | null;
+  register(tier: QueryTier, provider: Provider, options?: { isPrimary?: boolean }): void;
+  health(): Promise<Map<QueryTier, { provider: string; healthy: boolean }[]>>;
+}
+```
+
+### `OrchestratorConfig`
+
+```typescript
+interface OrchestratorConfig {
+  registry: ProviderRegistry;
+  enableCaching?: boolean;
+  enableRetry?: boolean;
+  maxRetries?: number;
+  retryDelayMs?: number;
+}
+```
+
+## Example Usage
+
+### Basic Classification
+
+```typescript
+import { classifyQuery } from '@tinyclaw/router';
+
+const examples = [
+  'Hello!',
+  'What is the capital of France?',
+  'Write a Python function to sort a list',
+  'Analyze the pros and cons of microservices vs monoliths',
+];
+
+for (const query of examples) {
+  const result = classifyQuery(query);
+  console.log(`"${query}" -> ${result.tier} (${result.confidence.toFixed(2)})`);
+}
+
+// Output:
+// "Hello!" -> simple (0.95)
+// "What is the capital of France?" -> moderate (0.80)
+// "Write a Python function to sort a list" -> complex (0.88)
+// "Analyze the pros and cons of microservices vs monoliths" -> reasoning (0.92)
+```
+
+### Provider Registry
+
+```typescript
+import { createProviderRegistry } from '@tinyclaw/router';
+import { createOllamaProvider } from '@tinyclaw/core';
+
+const fastProvider = createOllamaProvider({ model: 'kimi-k2.5:cloud' });
+const reasoningProvider = createOllamaProvider({ model: 'deepseek-r1:cloud' });
+
+const registry = createProviderRegistry({
+  tiers: {
+    simple: {
+      providers: [fastProvider],
+      fallback: fastProvider,
+    },
+    moderate: {
+      providers: [fastProvider],
+      fallback: fastProvider,
+    },
+    complex: {
+      providers: [fastProvider],
+      fallback: fastProvider,
+    },
+    reasoning: {
+      providers: [reasoningProvider],
+      fallback: fastProvider,
+    },
+  },
+});
+
+// Get provider for a tier
+const provider = registry.getProvider('reasoning');
+console.log(provider?.name); // 'Ollama Cloud (deepseek-r1)'
+```
+
+### Full Orchestration
+
+```typescript
+import { ProviderOrchestrator, createProviderRegistry } from '@tinyclaw/router';
+import { createOllamaProvider } from '@tinyclaw/core';
+
+const fastProvider = createOllamaProvider({ model: 'kimi-k2.5:cloud' });
+const reasoningProvider = createOllamaProvider({ model: 'deepseek-r1:cloud' });
+
+const registry = createProviderRegistry({
+  tiers: {
+    simple: { providers: [fastProvider] },
+    moderate: { providers: [fastProvider] },
+    complex: { providers: [fastProvider] },
+    reasoning: { providers: [reasoningProvider], fallback: fastProvider },
+  },
+});
+
+const orchestrator = new ProviderOrchestrator({
+  registry,
+  enableCaching: true,
+  enableRetry: true,
+});
+
+// Route a query
+const result = await orchestrator.route(
+  'Why should I use async/await over callbacks?',
+  [
+    { role: 'system', content: 'You are a helpful assistant.' },
+    { role: 'user', content: 'Why should I use async/await over callbacks?' },
+  ]
+);
+
+console.log(`Tier: ${result.tier}`);
+console.log(`Provider: ${result.provider}`);
+console.log(`Response: ${result.response.content}`);
+console.log(`Latency: ${result.latencyMs}ms`);
+```
+
+### Integration with Agent Loop
+
+```typescript
+import { agentLoop } from '@tinyclaw/core';
+import { ProviderOrchestrator, createProviderRegistry, classifyQuery } from '@tinyclaw/router';
+
+const registry = createProviderRegistry({ tiers: {...} });
+const orchestrator = new ProviderOrchestrator({ registry });
+
+// Custom agent loop with routing
+async function routedAgentLoop(message: string, userId: string, context: AgentContext) {
+  // Classify query
+  const classification = classifyQuery(message);
+  console.log(`Query classified as: ${classification.tier}`);
+
+  // Get optimal provider
+  const provider = registry.getProvider(classification.tier) || context.provider;
+
+  // Run agent loop with routed provider
+  return agentLoop(message, userId, { ...context, provider });
+}
+
+await routedAgentLoop('Explain quantum computing', 'web:owner', agentContext);
+```
+
+### Health Monitoring
+
+```typescript
+import { ProviderOrchestrator } from '@tinyclaw/router';
+
+const orchestrator = new ProviderOrchestrator({ registry });
+
+// Check provider health
+const healthResults = await orchestrator.health();
+
+for (const result of healthResults) {
+  const status = result.healthy ? '✅ Healthy' : '❌ Unhealthy';
+  console.log(`[${result.tier}] ${result.provider}: ${status}`);
+  if (result.error) {
+    console.error(`  Error: ${result.error}`);
+  }
+}
+```
+
+## Best Practices
+
+1. **Use tier-specific models** - Fast models for simple queries, reasoning models for complex analysis
+2. **Configure fallbacks** - Always have a fallback provider for reliability
+3. **Enable caching** - Cache responses for identical queries (saves API calls)
+4. **Monitor health** - Periodically check provider health and switch if needed
+5. **Tune classification** - Adjust classification heuristics based on your use case
+
+## Performance Considerations
+
+- **Classification**: ~1-2ms (heuristic-based, no LLM call)
+- **Caching**: 100x faster for cache hits (no LLM call)
+- **Fallback**: Adds ~500ms latency (health check + retry)
+- **Health checks**: Run every 5 minutes (configurable)
+
+## Related Packages
+
+- [@tinyclaw/core](/api/core) - Core agent runtime and LLM providers
+- [@tinyclaw/types](/api/types) - Type definitions
+- [@tinyclaw/delegation](/api/delegation) - Sub-agent delegation with tier preferences

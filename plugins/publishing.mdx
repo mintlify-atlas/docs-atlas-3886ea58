@@ -1,0 +1,538 @@
+---
+title: Publishing Plugins
+description: Learn how to publish your Tiny Claw plugin to npm
+---
+
+## Overview
+
+Once you've built and tested your plugin, you can publish it to npm so others can use it. This guide covers the entire publishing workflow, from package configuration to distribution.
+
+## Prerequisites
+
+### npm Account
+
+Create an npm account if you don't have one:
+
+```bash
+npm adduser
+```
+
+Or sign up at [npmjs.com](https://www.npmjs.com/signup).
+
+### Organization (Optional)
+
+Create an organization for your plugins:
+
+```bash
+npm org create @yourname
+```
+
+This allows scoped packages like `@yourname/plugin-channel-discord`.
+
+## Package Configuration
+
+### package.json
+
+Ensure your `package.json` is properly configured:
+
+```json
+{
+  "name": "@yourname/plugin-channel-discord",
+  "version": "1.0.0",
+  "description": "Discord channel plugin for Tiny Claw",
+  "license": "MIT",
+  "author": "Your Name <you@example.com>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "tinyclaw",
+    "plugin",
+    "channel",
+    "discord",
+    "ai",
+    "chatbot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourname/plugin-channel-discord.git"
+  },
+  "homepage": "https://github.com/yourname/plugin-channel-discord#readme",
+  "bugs": {
+    "url": "https://github.com/yourname/plugin-channel-discord/issues"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@tinyclaw/types": "^2.0.0"
+  },
+  "devDependencies": {
+    "@tinyclaw/types": "^2.0.0",
+    "@tinyclaw/logger": "^2.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.0.0"
+  }
+}
+```
+
+### Key Fields
+
+<ParamField path="name" type="string" required>
+  Scoped package name (e.g., `@yourname/plugin-channel-discord`)
+</ParamField>
+
+<ParamField path="version" type="string" required>
+  Semantic version following [semver](https://semver.org)
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Clear, concise description of what your plugin does
+</ParamField>
+
+<ParamField path="type" type="string" required>
+  Must be `"module"` for ESM support
+</ParamField>
+
+<ParamField path="main" type="string" required>
+  Entry point to compiled JavaScript (e.g., `./dist/index.js`)
+</ParamField>
+
+<ParamField path="types" type="string" required>
+  Entry point to TypeScript definitions (e.g., `./dist/index.d.ts`)
+</ParamField>
+
+<ParamField path="files" type="array" required>
+  List of files/directories to include in published package
+</ParamField>
+
+<ParamField path="keywords" type="array" required>
+  Search keywords including `tinyclaw` and `plugin`
+</ParamField>
+
+<ParamField path="peerDependencies" type="object" required>
+  Declare `@tinyclaw/types` as peer dependency
+</ParamField>
+
+## TypeScript Configuration
+
+Create a `tsconfig.json` for building your plugin:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "lib": ["ES2022"],
+    "moduleResolution": "node",
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}
+```
+
+## Project Structure
+
+Organize your plugin following this structure:
+
+```
+plugin-channel-discord/
+├── src/
+│   ├── index.ts          # Plugin entry point
+│   ├── pairing.ts        # Pairing tools (if applicable)
+│   └── types.ts          # Internal types (optional)
+├── dist/                 # Compiled output (generated)
+├── tests/                # Test files
+│   └── index.test.ts
+├── package.json
+├── tsconfig.json
+├── README.md
+├── LICENSE
+└── .npmignore            # Files to exclude from npm
+```
+
+## Documentation
+
+### README.md
+
+Create a comprehensive README:
+
+```markdown
+# @yourname/plugin-channel-discord
+
+Discord channel plugin for Tiny Claw
+
+## Installation
+
+\`\`\`bash
+npm install @yourname/plugin-channel-discord
+\`\`\`
+
+## Setup
+
+1. Create a Discord bot at [Discord Developer Portal](https://discord.com/developers/applications)
+2. Enable "Message Content Intent" under Privileged Gateway Intents
+3. Copy the bot token
+4. Add plugin to Tiny Claw configuration:
+
+\`\`\`bash
+tinyclaw config set plugins.enabled '["@yourname/plugin-channel-discord"]'
+\`\`\`
+
+5. Restart Tiny Claw and ask the agent to pair Discord
+6. Provide the bot token when prompted
+
+## Configuration
+
+The plugin stores:
+- Bot token in secrets: `channel.discord.token`
+- Enabled flag in config: `channels.discord.enabled`
+
+## Usage
+
+Once paired, your Discord bot will respond to:
+- Direct messages
+- @mentions in guild channels
+
+## Pairing Tools
+
+### discord_pair
+
+Pair the Discord bot with Tiny Claw.
+
+**Parameters:**
+- `token` (string, required): Discord bot token
+
+### discord_unpair
+
+Disconnect the Discord bot.
+
+## License
+
+MIT
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md)
+```
+
+### LICENSE
+
+Choose an appropriate license (MIT, GPL-3.0, Apache-2.0, etc.):
+
+```text
+MIT License
+
+Copyright (c) 2024 Your Name
+
+Permission is hereby granted, free of charge...
+```
+
+## .npmignore
+
+Exclude unnecessary files from published package:
+
+```
+# Source files
+src/
+tsconfig.json
+
+# Tests
+tests/
+*.test.ts
+*.spec.ts
+
+# Development
+.git/
+.github/
+.vscode/
+*.log
+node_modules/
+
+# Build artifacts
+*.tsbuildinfo
+```
+
+## Building
+
+Compile your plugin before publishing:
+
+```bash
+npm run build
+```
+
+Verify the output in `dist/`:
+
+```bash
+ls -la dist/
+# Should contain: index.js, index.d.ts, etc.
+```
+
+## Testing Before Publishing
+
+### 1. Local Installation
+
+Test installation from local directory:
+
+```bash
+# In your plugin directory
+npm pack
+# This creates: yourname-plugin-channel-discord-1.0.0.tgz
+
+# In a test project
+npm install /path/to/yourname-plugin-channel-discord-1.0.0.tgz
+```
+
+### 2. npm link
+
+Test with live development:
+
+```bash
+# In plugin directory
+npm link
+
+# In Tiny Claw directory
+npm link @yourname/plugin-channel-discord
+
+# Enable and test
+tinyclaw config set plugins.enabled '["@yourname/plugin-channel-discord"]'
+tinyclaw restart
+```
+
+### 3. Verify Package Contents
+
+Check what will be published:
+
+```bash
+npm pack --dry-run
+```
+
+This shows all files that will be included.
+
+## Publishing
+
+### First Release
+
+1. **Login to npm:**
+
+```bash
+npm login
+```
+
+2. **Verify package.json:**
+
+Double-check version, name, and metadata.
+
+3. **Build:**
+
+```bash
+npm run build
+```
+
+4. **Publish:**
+
+```bash
+npm publish --access public
+```
+
+For scoped packages, `--access public` is required unless you have a paid npm account.
+
+### Subsequent Releases
+
+1. **Update version:**
+
+```bash
+# Patch release (1.0.0 -> 1.0.1)
+npm version patch
+
+# Minor release (1.0.0 -> 1.1.0)
+npm version minor
+
+# Major release (1.0.0 -> 2.0.0)
+npm version major
+```
+
+2. **Commit and tag:**
+
+```bash
+git push --follow-tags
+```
+
+3. **Publish:**
+
+```bash
+npm publish --access public
+```
+
+## Semantic Versioning
+
+Follow [semver](https://semver.org) for version numbers:
+
+- **Patch** (1.0.x): Bug fixes, no breaking changes
+- **Minor** (1.x.0): New features, backward compatible
+- **Major** (x.0.0): Breaking changes
+
+### Examples
+
+- `1.0.0` → `1.0.1`: Fixed a bug in message parsing
+- `1.0.1` → `1.1.0`: Added support for slash commands
+- `1.1.0` → `2.0.0`: Changed plugin interface (breaking)
+
+## CI/CD Automation
+
+### GitHub Actions
+
+Automate publishing with GitHub Actions:
+
+```yaml
+# .github/workflows/publish.yml
+name: Publish to npm
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run build
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+```
+
+Add your npm token to GitHub Secrets:
+
+1. Generate token at [npmjs.com/settings/tokens](https://www.npmjs.com/settings/tokens)
+2. Add as `NPM_TOKEN` in GitHub repository secrets
+
+## Plugin Registry
+
+### Submit to Tiny Claw Registry
+
+Once published, submit your plugin to the official registry:
+
+1. Fork [tinyclaw/plugins-registry](https://github.com/warengonzaga/tinyclaw-plugins)
+2. Add entry to `plugins.json`:
+
+```json
+{
+  "id": "@yourname/plugin-channel-discord",
+  "type": "channel",
+  "name": "Discord",
+  "description": "Connect Tiny Claw to Discord",
+  "author": "Your Name",
+  "version": "1.0.0",
+  "repository": "https://github.com/yourname/plugin-channel-discord",
+  "keywords": ["discord", "chat", "messaging"]
+}
+```
+
+3. Submit pull request
+
+## Best Practices
+
+### Versioning
+
+- Start at `1.0.0` for initial stable release
+- Use `0.x.x` for experimental/unstable versions
+- Update changelog with every release
+- Tag releases in git: `git tag v1.0.0`
+
+### Documentation
+
+- Include clear setup instructions
+- Document all configuration options
+- Provide usage examples
+- List peer dependencies explicitly
+- Add troubleshooting section
+
+### Testing
+
+- Include unit tests
+- Test against multiple Tiny Claw versions
+- Verify clean installation from npm
+- Test upgrade path from previous versions
+
+### Security
+
+- Never include secrets in published package
+- Use `.npmignore` to exclude sensitive files
+- Audit dependencies regularly: `npm audit`
+- Keep dependencies up to date
+
+### Maintenance
+
+- Respond to issues promptly
+- Accept community contributions
+- Document breaking changes clearly
+- Maintain backward compatibility when possible
+
+## Unpublishing
+
+<Warning>
+  Unpublishing is discouraged and only allowed within 72 hours of publishing.
+</Warning>
+
+If you need to remove a version:
+
+```bash
+# Deprecate instead of unpublishing
+npm deprecate @yourname/plugin-name@1.0.0 "Please upgrade to 1.0.1"
+
+# Unpublish (use with caution)
+npm unpublish @yourname/plugin-name@1.0.0
+```
+
+## Support and Community
+
+### Get Help
+
+- [Tiny Claw Discord](https://discord.gg/tinyclaw)
+- [GitHub Discussions](https://github.com/warengonzaga/tinyclaw/discussions)
+- [Plugin Development Guide](/plugins/overview)
+
+### Share Your Plugin
+
+- Post on social media with #TinyClaw
+- Submit to plugin registry
+- Write a blog post about your plugin
+- Present at community meetups
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Plugin Overview" icon="puzzle-piece" href="/plugins/overview">
+    Learn more about plugin architecture
+  </Card>
+  <Card title="Community" icon="users" href="/community/contributing">
+    Join the Tiny Claw community
+  </Card>
+</CardGroup>

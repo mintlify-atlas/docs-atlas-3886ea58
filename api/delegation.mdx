@@ -1,0 +1,485 @@
+---
+title: '@tinyclaw/delegation'
+description: 'Multi-agent delegation system with role templates and background execution'
+---
+
+# @tinyclaw/delegation
+
+Tiny Claw's multi-agent delegation system. Allows the main agent to spawn specialized sub-agents for complex tasks, with automatic lifecycle management, role templates, and background execution.
+
+## Installation
+
+```bash
+npm install @tinyclaw/delegation
+```
+
+## Core Concepts
+
+**Delegation** in Tiny Claw allows the main agent to:
+- Spawn **sub-agents** with specialized roles and tools
+- Execute tasks in **background** (fire-and-forget)
+- **Reuse** existing sub-agents for similar tasks
+- **Template** common roles for faster spawning
+- **Blackboard** collaborative problem-solving between sub-agents
+
+### Architecture
+
+```
+Main Agent
+  ├─ Sub-Agent 1 (Data Analyst) [active]
+  ├─ Sub-Agent 2 (Code Generator) [suspended]
+  └─ Sub-Agent 3 (Researcher) [background task]
+```
+
+## Main Exports
+
+### Lifecycle Manager
+
+#### `createLifecycleManager(db: Database, config?: DelegationV2Config): LifecycleManager`
+
+Create a lifecycle manager for sub-agent CRUD operations.
+
+<ParamField path="db" type="Database" required>
+  Database instance from `@tinyclaw/core`
+</ParamField>
+
+<ParamField path="config" type="DelegationV2Config">
+  Optional configuration
+</ParamField>
+
+```typescript
+import { createLifecycleManager } from '@tinyclaw/delegation';
+import { createDatabase } from '@tinyclaw/core';
+
+const db = createDatabase('/path/to/tiny-claw.db');
+const lifecycle = createLifecycleManager(db);
+```
+
+**Methods:**
+- `createAgent(userId, config)` - Spawn a new sub-agent
+- `getAgent(agentId)` - Retrieve a sub-agent
+- `listAgents(userId)` - List all sub-agents
+- `suspendAgent(agentId)` - Suspend a sub-agent
+- `reviveAgent(agentId)` - Revive a suspended sub-agent
+- `deleteAgent(agentId)` - Soft-delete a sub-agent
+- `updatePerformance(agentId, success)` - Update performance metrics
+
+### Template Manager
+
+#### `createTemplateManager(db: Database): TemplateManager`
+
+Create a template manager for role templates.
+
+```typescript
+import { createTemplateManager } from '@tinyclaw/delegation';
+
+const templates = createTemplateManager(db);
+```
+
+**Methods:**
+- `createTemplate(userId, template)` - Save a role template
+- `getTemplate(templateId)` - Retrieve a template
+- `listTemplates(userId)` - List all templates
+- `updateTemplate(templateId, updates)` - Update a template
+- `deleteTemplate(templateId)` - Delete a template
+- `findBestMatch(userId, description)` - Find template by similarity
+
+### Background Runner
+
+#### `createBackgroundRunner(db: Database): BackgroundRunner`
+
+Create a background task runner.
+
+```typescript
+import { createBackgroundRunner } from '@tinyclaw/delegation';
+
+const background = createBackgroundRunner(db);
+```
+
+**Methods:**
+- `start(userId, agentId, task)` - Start a background task
+- `complete(taskId, result)` - Mark task as completed
+- `fail(taskId, error)` - Mark task as failed
+- `getUndelivered(userId)` - Get undelivered results
+- `markDelivered(taskId)` - Mark result as delivered
+- `cancelAll()` - Cancel all running tasks
+- `cleanupStale(olderThanMs)` - Clean up stale tasks
+
+### Sub-Agent Runner
+
+#### `runSubAgent(agentId, task, context): Promise<SubAgentResult>`
+
+Run a sub-agent synchronously.
+
+<ParamField path="agentId" type="string" required>
+  Sub-agent ID
+</ParamField>
+
+<ParamField path="task" type="string" required>
+  Task description
+</ParamField>
+
+<ParamField path="context" type="AgentContext" required>
+  Agent context (db, provider, tools, etc.)
+</ParamField>
+
+<ResponseField name="result" type="SubAgentResult">
+  Result with content and metadata
+</ResponseField>
+
+```typescript
+import { runSubAgent } from '@tinyclaw/delegation';
+
+const result = await runSubAgent(
+  'agent-uuid-123',
+  'Analyze quarterly revenue data',
+  agentContext
+);
+
+console.log(result.content);
+```
+
+#### `runSubAgentV2(config, context): Promise<SubAgentRunResult>`
+
+Run a sub-agent with full v2 configuration.
+
+```typescript
+import { runSubAgentV2 } from '@tinyclaw/delegation';
+
+const result = await runSubAgentV2(
+  {
+    userId: 'web:owner',
+    role: 'Data Analyst',
+    task: 'Analyze Q1 revenue',
+    tools: ['calculate', 'visualize'],
+    tier: 'complex',
+    maxIterations: 20,
+  },
+  agentContext
+);
+```
+
+### Delegation Tools
+
+#### `createDelegationTools(config: DelegationToolsConfig): Tool[]`
+
+Create agent tools for delegation.
+
+<ParamField path="config.db" type="Database" required>
+  Database instance
+</ParamField>
+
+<ParamField path="config.agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="config.lifecycle" type="LifecycleManager" required>
+  Lifecycle manager
+</ParamField>
+
+<ParamField path="config.templates" type="TemplateManager" required>
+  Template manager
+</ParamField>
+
+<ParamField path="config.background" type="BackgroundRunner" required>
+  Background runner
+</ParamField>
+
+```typescript
+import { createDelegationTools } from '@tinyclaw/delegation';
+
+const tools = createDelegationTools({
+  db,
+  agentContext,
+  lifecycle,
+  templates,
+  background,
+});
+```
+
+**Generated Tools:**
+
+1. **delegate_task** - Delegate a task to a new/existing sub-agent
+2. **delegate_background** - Delegate a task to run in background
+3. **delegate_to_existing** - Delegate to a specific existing sub-agent
+4. **manage_sub_agent** - Suspend/revive/delete sub-agents
+5. **confirm_task** - Confirm completed background task
+6. **list_sub_agents** - List all sub-agents
+
+### Blackboard
+
+#### `createBlackboard(db: Database): Blackboard`
+
+Create a blackboard for collaborative problem-solving.
+
+```typescript
+import { createBlackboard } from '@tinyclaw/delegation';
+
+const blackboard = createBlackboard(db);
+
+// Post a problem
+const problemId = await blackboard.postProblem(
+  'web:owner',
+  'How to optimize database queries?'
+);
+
+// Sub-agents post proposals
+await blackboard.postProposal(
+  problemId,
+  'agent-1',
+  'Database Optimizer',
+  'Add indexes on frequently queried columns',
+  0.8
+);
+
+// Get proposals
+const proposals = await blackboard.getProposals(problemId);
+
+// Resolve with synthesis
+await blackboard.resolve(
+  problemId,
+  'Added indexes on user_id and created_at columns'
+);
+```
+
+### Timeout Estimator
+
+#### `createTimeoutEstimator(db: Database): TimeoutEstimator`
+
+Create an adaptive timeout estimator based on task metrics.
+
+```typescript
+import { createTimeoutEstimator } from '@tinyclaw/delegation';
+
+const estimator = createTimeoutEstimator(db);
+
+const estimate = estimator.estimate('code_generation', 'complex');
+console.log(`Estimated timeout: ${estimate.timeoutMs}ms`);
+
+if (estimate.shouldExtend) {
+  console.log('Consider extending timeout for this task');
+}
+```
+
+## Types
+
+### `SubAgentRecord`
+
+```typescript
+interface SubAgentRecord {
+  id: string;
+  userId: string;
+  role: string;
+  systemPrompt: string;
+  toolsGranted: string[];
+  tierPreference: QueryTier | null;
+  status: 'active' | 'suspended' | 'soft_deleted';
+  performanceScore: number;
+  totalTasks: number;
+  successfulTasks: number;
+  templateId: string | null;
+  createdAt: number;
+  lastActiveAt: number;
+  deletedAt: number | null;
+}
+```
+
+### `RoleTemplate`
+
+```typescript
+interface RoleTemplate {
+  id: string;
+  userId: string;
+  name: string;
+  roleDescription: string;
+  defaultTools: string[];
+  defaultTier: QueryTier | null;
+  timesUsed: number;
+  avgPerformance: number;
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+```
+
+### `BackgroundTask`
+
+```typescript
+interface BackgroundTask {
+  id: string;
+  userId: string;
+  agentId: string;
+  taskDescription: string;
+  status: 'running' | 'completed' | 'failed' | 'delivered';
+  result: string | null;
+  startedAt: number;
+  completedAt: number | null;
+  deliveredAt: number | null;
+}
+```
+
+### `SubAgentRunConfig`
+
+```typescript
+interface SubAgentRunConfig {
+  userId: string;
+  role: string;
+  task: string;
+  tools?: string[];
+  tier?: QueryTier;
+  maxIterations?: number;
+  templateId?: string;
+}
+```
+
+## Delegation Handbook
+
+The delegation handbook is automatically injected into the main agent's system prompt.
+
+```typescript
+import { DELEGATION_HANDBOOK, DELEGATION_TOOL_NAMES } from '@tinyclaw/delegation';
+
+console.log(DELEGATION_HANDBOOK);
+// Detailed guide on when/how to delegate
+
+console.log(DELEGATION_TOOL_NAMES);
+// ['delegate_task', 'delegate_background', 'delegate_to_existing', ...]
+```
+
+## Example Usage
+
+### Basic Delegation
+
+```typescript
+import { createDatabase } from '@tinyclaw/core';
+import {
+  createLifecycleManager,
+  createTemplateManager,
+  createBackgroundRunner,
+  createDelegationTools,
+  runSubAgent,
+} from '@tinyclaw/delegation';
+
+const db = createDatabase('/path/to/tiny-claw.db');
+const lifecycle = createLifecycleManager(db);
+const templates = createTemplateManager(db);
+const background = createBackgroundRunner(db);
+
+// Create delegation tools
+const delegationTools = createDelegationTools({
+  db,
+  agentContext,
+  lifecycle,
+  templates,
+  background,
+});
+
+// Add to agent context
+const agentContext = {
+  db,
+  provider,
+  learning,
+  tools: [...baseTools, ...delegationTools],
+  delegation: {
+    lifecycle,
+    templates,
+    background,
+  },
+};
+
+// The agent can now use delegation tools:
+// "Please analyze this data" -> delegate_task -> spawns Data Analyst sub-agent
+```
+
+### Manual Sub-Agent Execution
+
+```typescript
+import { createLifecycleManager, runSubAgent } from '@tinyclaw/delegation';
+
+const lifecycle = createLifecycleManager(db);
+
+// Create a sub-agent
+const agent = await lifecycle.createAgent('web:owner', {
+  role: 'Code Generator',
+  systemPrompt: 'You are a Python code generator. Write clean, tested code.',
+  tools: ['execute_code'],
+  tier: 'complex',
+});
+
+// Run a task
+const result = await runSubAgent(
+  agent.id,
+  'Write a function to parse CSV files',
+  agentContext
+);
+
+console.log(result.content);
+
+// Update performance
+await lifecycle.updatePerformance(agent.id, true);
+
+// Suspend when done
+await lifecycle.suspendAgent(agent.id);
+```
+
+### Background Tasks
+
+```typescript
+import { createBackgroundRunner } from '@tinyclaw/delegation';
+
+const background = createBackgroundRunner(db);
+
+// Start a background task
+const taskId = await background.start(
+  'web:owner',
+  'agent-uuid-123',
+  'Research competitor pricing'
+);
+
+// Later: check for completed tasks
+const undelivered = background.getUndelivered('web:owner');
+for (const task of undelivered) {
+  console.log(`Task completed: ${task.result}`);
+  background.markDelivered(task.id);
+}
+```
+
+### Role Templates
+
+```typescript
+import { createTemplateManager, createLifecycleManager } from '@tinyclaw/delegation';
+
+const templates = createTemplateManager(db);
+const lifecycle = createLifecycleManager(db);
+
+// Create a template
+const templateId = await templates.createTemplate('web:owner', {
+  name: 'Data Analyst',
+  roleDescription: 'Analyzes data and generates insights',
+  defaultTools: ['calculate', 'visualize'],
+  defaultTier: 'complex',
+  tags: ['data', 'analytics'],
+});
+
+// Spawn sub-agent from template
+const agent = await lifecycle.createAgent('web:owner', {
+  templateId,
+  role: 'Data Analyst',
+  systemPrompt: 'You are a data analyst specialized in revenue analysis.',
+});
+```
+
+## Best Practices
+
+1. **Use templates** for common roles (saves prompt engineering time)
+2. **Suspend agents** when not actively working (keeps database clean)
+3. **Background tasks** for long-running operations (fire-and-forget)
+4. **Reuse agents** for similar tasks (better performance via memory)
+5. **Grant minimal tools** (security: only give what's needed)
+6. **Monitor performance** (auto-suspend low-performing agents)
+
+## Related Packages
+
+- [@tinyclaw/core](/api/core) - Core agent runtime
+- [@tinyclaw/types](/api/types) - Type definitions
+- [@tinyclaw/router](/api/router) - Query routing and orchestration

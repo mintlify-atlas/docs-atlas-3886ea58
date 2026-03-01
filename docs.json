@@ -1,122 +1,125 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Tiny Claw",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#31373D",
+    "light": "#F3F4F6",
+    "dark": "#1F2937"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/warengonzaga/tinyclaw"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/warengonzaga/tinyclaw",
+      "x": "https://x.com/TinyClawAI"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/architecture",
+              "concepts/plugin-system",
+              "concepts/memory-system",
+              "concepts/heartware",
+              "concepts/delegation",
+              "concepts/smart-routing",
+              "concepts/security"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/setup",
+              "guides/configuration",
+              "guides/cli-commands",
+              "guides/working-with-channels",
+              "guides/provider-management"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Plugin Development",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "plugins/overview",
+              "plugins/channel-plugins",
+              "plugins/provider-plugins",
+              "plugins/tool-plugins",
+              "plugins/publishing"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core Packages",
             "pages": [
-              "api-reference/introduction"
+              "api/core",
+              "api/types",
+              "api/config",
+              "api/heartware",
+              "api/memory",
+              "api/delegation",
+              "api/router",
+              "api/compactor",
+              "api/shield",
+              "api/learning"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Utilities",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/sandbox",
+              "api/shell",
+              "api/secrets",
+              "api/plugins",
+              "api/logger",
+              "api/intercom",
+              "api/queue"
+            ]
+          },
+          {
+            "group": "Built-in Plugins",
+            "pages": [
+              "api/plugins/channel-discord",
+              "api/plugins/channel-friends",
+              "api/plugins/ollama-provider"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Community",
+        "groups": [
+          {
+            "group": "Resources",
+            "pages": [
+              "community/contributing",
+              "community/code-of-conduct",
+              "community/changelog",
+              "community/faq"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,374 @@
+---
+title: Frequently Asked Questions
+description: Common questions about Tiny Claw - setup, usage, plugins, troubleshooting, and comparisons with other frameworks
+icon: circle-question
+---
+
+# Frequently Asked Questions
+
+Find answers to common questions about Tiny Claw, from getting started to advanced usage.
+
+## Getting Started
+
+<AccordionGroup>
+  <Accordion title="What is Tiny Claw?">
+    Tiny Claw is an autonomous AI agent framework built from scratch. It's designed to be simple, affordable, and truly personal - like having your own AI companion (think Codsworth from Fallout or AYLA from Deliver Us Mars) that grows with you over time.
+    
+    Unlike other frameworks, Tiny Claw is:
+    - **Native** - built from scratch, not wrapped around other frameworks
+    - **Tiny** - minimal core with plugin architecture
+    - **Personal** - has its own personality and treats you as a friend
+    - **Affordable** - smart routing cuts LLM costs by tiering queries
+  </Accordion>
+  
+  <Accordion title="How is Tiny Claw different from other AI frameworks?">
+    Tiny Claw stands out in several key ways:
+    
+    | Feature | Tiny Claw | Others |
+    |---------|-----------|--------|
+    | **Built** | From scratch | On existing frameworks |
+    | **Core** | Tiny, plugin-based | Large monolith |
+    | **Personality** | Fixed, unique character | Fully configurable |
+    | **Memory** | Self-improving with temporal decay | Flat conversation history |
+    | **Cost** | Smart routing tiers queries | Every query hits expensive models |
+    | **Setup** | Self-configuring | Complex multi-step onboarding |
+    | **Runtime** | Bun-native | Node.js + multiple dependencies |
+    
+    See [Introduction](/introduction#why-tiny-claw) for a detailed comparison.
+  </Accordion>
+  
+  <Accordion title="Do I need coding experience to use Tiny Claw?">
+    No! Tiny Claw is designed to be accessible to everyone:
+    
+    - **Basic usage**: No coding required. Install and start chatting via the web UI.
+    - **Plugin development**: Basic JavaScript/TypeScript knowledge helpful but not required - we provide templates.
+    - **Advanced customization**: TypeScript experience recommended for core contributions.
+    
+    Check out the [Quick Start](/quickstart) guide to get up and running in minutes.
+  </Accordion>
+  
+  <Accordion title="What are the system requirements?">
+    Minimal requirements:
+    
+    - **Runtime**: [Bun](https://bun.sh) (latest stable version)
+    - **OS**: Linux, macOS, or Windows (WSL2 recommended)
+    - **Storage**: ~100MB for base installation
+    - **Memory**: 512MB minimum, 2GB recommended
+    - **API Keys**: Ollama Cloud account (free tier available) or your own provider API keys
+    
+    See [Installation](/installation) for detailed setup instructions.
+  </Accordion>
+</AccordionGroup>
+
+## Setup & Configuration
+
+<AccordionGroup>
+  <Accordion title="How do I install Tiny Claw?">
+    Installation is simple:
+    
+    ```bash
+    bun install
+    bun start
+    ```
+    
+    Open [http://localhost:3000](http://localhost:3000) and Tiny Claw will guide you through the rest. No config files needed - it's self-configuring!
+    
+    See the full [Installation Guide](/installation) for details.
+  </Accordion>
+  
+  <Accordion title="Can I use my own LLM provider?">
+    Yes! Tiny Claw supports multiple providers:
+    
+    - **Built-in**: Ollama Cloud (default, free tier available)
+    - **Plugin support**: OpenAI, Anthropic, and more via provider plugins
+    - **Custom**: Build your own provider plugin
+    
+    The smart routing system adapts to whatever providers you have installed. See [Provider Management](/guides/provider-management) for details.
+  </Accordion>
+  
+  <Accordion title="What models does Tiny Claw support?">
+    Tiny Claw works with any LLM that supports chat completions:
+    
+    **Default (Ollama Cloud)**:
+    - `kimi-k2.5:cloud` (default)
+    - `gpt-oss:120b-cloud`
+    
+    **Via Plugins**:
+    - OpenAI: GPT-4, GPT-3.5, etc.
+    - Anthropic: Claude 3.5 Sonnet, Claude 3 Opus, etc.
+    - Any OpenAI-compatible API
+    
+    You can switch models during setup or anytime via conversation.
+  </Accordion>
+  
+  <Accordion title="Where is my data stored?">
+    All data is stored locally on your machine:
+    
+    - **Database**: SQLite (location: `~/.tinyclaw/tinyclaw.db`)
+    - **Conversations**: Encrypted with your session key
+    - **Secrets**: AES-256-GCM encryption via the secrets engine
+    - **No cloud sync**: Your data never leaves your machine unless you explicitly use a cloud provider for LLM queries
+    
+    See [Security](/concepts/security) for more details.
+  </Accordion>
+</AccordionGroup>
+
+## Features & Usage
+
+<AccordionGroup>
+  <Accordion title="What is Heartware and can I customize it?">
+    **Heartware** is Tiny Claw's personality engine - it gives the agent its unique character and voice. It consists of:
+    
+    - **SOUL.md**: Core personality, values, and behavioral patterns
+    - **IDENTITY.md**: Self-awareness and personal context
+    - **SHIELD.md**: Security policies and threat detection
+    
+    <Warning>
+      Unlike other frameworks, **you cannot override Tiny Claw's personality**. This is by design. Tiny Claw is a companion with its own character, not a blank slate you configure. If you want full personality control, other frameworks may be a better fit.
+    </Warning>
+    
+    Learn more in [Heartware Documentation](/concepts/heartware).
+  </Accordion>
+  
+  <Accordion title="How does the memory system work?">
+    Tiny Claw uses a sophisticated 3-layer memory architecture:
+    
+    1. **Episodic Memory**: Stores conversation events with temporal decay
+    2. **Semantic Memory**: Full-text search (FTS5) for knowledge retrieval
+    3. **Temporal Decay**: Automatically forgets less important information over time
+    
+    The agent learns what to remember and what to forget, improving itself with every interaction.
+    
+    Read the [Memory System](/concepts/memory-system) documentation for details.
+  </Accordion>
+  
+  <Accordion title="What is smart routing and how does it save money?">
+    **Smart routing** is Tiny Claw's cost-optimization feature. It uses an 8-dimension query classifier to analyze incoming queries and route them to the most appropriate provider:
+    
+    - **Simple queries** → Cheap/free models (e.g., GPT-3.5, local models)
+    - **Complex queries** → Powerful models (e.g., Claude 3.5 Sonnet, GPT-4)
+    
+    This can cut LLM costs by **60-80%** compared to always using the most expensive model.
+    
+    Learn more in [Smart Routing](/concepts/smart-routing).
+  </Accordion>
+  
+  <Accordion title="Can Tiny Claw work with multiple communication channels?">
+    Yes! Channels are implemented as plugins:
+    
+    - **Built-in**: Web UI (Discord-like interface)
+    - **Plugin support**: Discord, Slack, Telegram, CLI, and more
+    - **Custom**: Build your own channel plugin
+    
+    See [Channel Plugins](/plugins/channel-plugins) for available options.
+  </Accordion>
+  
+  <Accordion title="What is the delegation system?">
+    The **delegation system** allows Tiny Claw to spawn autonomous sub-agents for complex tasks:
+    
+    - **Self-improving role templates**: Agent learns better delegation patterns
+    - **Blackboard collaboration**: Shared state between parent and child agents
+    - **Adaptive timeout estimation**: Learns how long tasks take
+    
+    This enables sophisticated multi-step workflows without manual orchestration.
+    
+    Read more in [Delegation System](/concepts/delegation).
+  </Accordion>
+</AccordionGroup>
+
+## Plugins & Extensibility
+
+<AccordionGroup>
+  <Accordion title="How do I install plugins?">
+    Plugins are managed through the plugin system:
+    
+    1. **Built-in plugins**: Automatically available
+    2. **Community plugins**: Install from npm or GitHub
+    3. **Custom plugins**: Drop into `plugins/` directory
+    
+    See [Plugin System](/concepts/plugin-system) for details.
+  </Accordion>
+  
+  <Accordion title="How do I create my own plugin?">
+    Creating plugins is straightforward:
+    
+    1. Choose your plugin type (channel, provider, or tool)
+    2. Use our plugin template
+    3. Implement the required interface
+    4. Test locally
+    5. Publish (optional)
+    
+    Check out our plugin development guides:
+    - [Channel Plugins](/plugins/channel-plugins)
+    - [Provider Plugins](/plugins/provider-plugins)
+    - [Tool Plugins](/plugins/tool-plugins)
+  </Accordion>
+  
+  <Accordion title="Can I publish and share my plugins?">
+    Absolutely! You can:
+    
+    - **Publish to npm**: Standard package manager distribution
+    - **Share on GitHub**: Open source your plugin
+    - **Submit to plugin registry**: Add to official Tiny Claw plugin list
+    
+    See [Publishing Plugins](/plugins/publishing) for guidelines.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Tiny Claw won't start. What should I check?">
+    Common issues and solutions:
+    
+    1. **Check Bun version**: Run `bun --version` (should be latest stable)
+    2. **Verify installation**: Run `bun install` in the project directory
+    3. **Check port availability**: Default port 3000 might be in use
+    4. **Review logs**: Check `~/.tinyclaw/logs/` for error messages
+    5. **Permission issues**: Ensure write access to `~/.tinyclaw/`
+    
+    Still stuck? [Open an issue](https://github.com/warengonzaga/tinyclaw/issues/new/choose) with your error logs.
+  </Accordion>
+  
+  <Accordion title="The agent isn't responding. What's wrong?">
+    Debugging steps:
+    
+    1. **Check provider status**: Verify your LLM provider API is accessible
+    2. **API key validity**: Ensure your API keys are correct and active
+    3. **Network connectivity**: Test your internet connection
+    4. **Rate limits**: You may have hit provider rate limits
+    5. **Check logs**: Review console output for error messages
+    
+    Try switching to a different provider or model to isolate the issue.
+  </Accordion>
+  
+  <Accordion title="My messages are being rejected or filtered">
+    This is likely the **SHIELD.md** anti-malware system protecting the agent:
+    
+    - **Malicious patterns detected**: Your message triggered security filters
+    - **Prompt injection attempt**: Detected attempt to override personality
+    - **Unsafe actions**: Request violates safety policies
+    
+    Review your message and rephrase. If you believe this is a false positive, [report it](https://github.com/warengonzaga/tinyclaw/issues/new/choose).
+    
+    Learn more in [Security Documentation](/concepts/security).
+  </Accordion>
+  
+  <Accordion title="The agent forgot our previous conversation">
+    This is normal behavior due to **temporal decay**:
+    
+    - Less important memories fade over time
+    - Conversation context is compacted after a certain size
+    - Semantic memory retains key facts even when episodic memory fades
+    
+    If you need to reference old information, explicitly mention it or use the memory search feature.
+    
+    See [Memory System](/concepts/memory-system) for how this works.
+  </Accordion>
+  
+  <Accordion title="How do I reset or start fresh?">
+    To reset Tiny Claw:
+    
+    ```bash
+    # Complete reset (deletes all data)
+    rm -rf ~/.tinyclaw/
+    
+    # Soft reset (keeps configuration, clears conversations)
+    rm ~/.tinyclaw/tinyclaw.db
+    ```
+    
+    <Warning>
+      This will delete all conversations and learned patterns. Backup important data first!
+    </Warning>
+  </Accordion>
+</AccordionGroup>
+
+## Cost & Licensing
+
+<AccordionGroup>
+  <Accordion title="Is Tiny Claw free to use?">
+    Yes! Tiny Claw is **open source** under GPL-3.0:
+    
+    - **Personal use**: Completely free
+    - **Contributions**: Welcome and encouraged
+    - **Commercial use**: Requires commercial license (contact for pricing)
+    
+    LLM provider costs are separate:
+    - **Ollama Cloud**: Generous free tier, pay-as-you-go beyond that
+    - **Other providers**: Your own API costs apply
+    
+    Smart routing helps minimize LLM expenses.
+  </Accordion>
+  
+  <Accordion title="Does Tiny Claw have a cryptocurrency token?">
+    <Warning>
+      **NO.** Tiny Claw has **NO** official token, coin, or cryptocurrency and we have no plans to create one.
+    </Warning>
+    
+    If you see any token using Tiny Claw's name, it is **not affiliated** with this project.
+    
+    The only ways to support Tiny Claw:
+    - [GitHub Sponsors](https://github.com/sponsors/warengonzaga)
+    - [Buy Me a Coffee](https://buymeacoffee.com/warengonzaga)
+  </Accordion>
+  
+  <Accordion title="What's the dual-licensing model?">
+    Tiny Claw uses **dual licensing**:
+    
+    1. **GPL-3.0**: Free for personal, educational, and non-commercial use
+    2. **Commercial License**: Required for commercial products/services
+    
+    This ensures the project stays sustainable while remaining accessible to individuals and researchers.
+  </Accordion>
+</AccordionGroup>
+
+## Community & Support
+
+<AccordionGroup>
+  <Accordion title="How do I contribute to Tiny Claw?">
+    We welcome contributions! Here's how to get started:
+    
+    1. Read the [Contributing Guide](/community/contributing)
+    2. Check [open issues](https://github.com/warengonzaga/tinyclaw/issues)
+    3. Join [discussions](https://github.com/warengonzaga/tinyclaw/discussions)
+    4. Submit PRs to the `dev` branch
+    
+    All contributors must sign the CLA (automated via GitHub).
+  </Accordion>
+  
+  <Accordion title="Where can I get help?">
+    Multiple support channels:
+    
+    - **Documentation**: Start here! Most questions are answered in the docs
+    - **GitHub Issues**: Bug reports and feature requests
+    - **GitHub Discussions**: General questions and community support
+    - **X/Twitter**: Follow [@TinyClawAI](https://x.com/TinyClawAI) and [@warengonzaga](https://x.com/warengonzaga)
+  </Accordion>
+  
+  <Accordion title="Can I use Tiny Claw for my business?">
+    Yes, but you'll need a commercial license. Contact the maintainer for:
+    
+    - Commercial use in products/services
+    - White-label deployments
+    - Custom development and support
+    - Enterprise features
+    
+    Personal and non-commercial use remains free under GPL-3.0.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Still have questions?
+
+<CardGroup cols={3}>
+  <Card title="GitHub Discussions" icon="comments" href="https://github.com/warengonzaga/tinyclaw/discussions">
+    Ask the community
+  </Card>
+  <Card title="Open an Issue" icon="github" href="https://github.com/warengonzaga/tinyclaw/issues/new/choose">
+    Report bugs or request features
+  </Card>
+  <Card title="Read the Docs" icon="book" href="/introduction">
+    Explore detailed documentation
+  </Card>
+</CardGroup>

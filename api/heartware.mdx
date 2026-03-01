@@ -1,0 +1,429 @@
+---
+title: '@tinyclaw/heartware'
+description: 'Self-configuration workspace with security-first architecture'
+---
+
+# @tinyclaw/heartware
+
+Tiny Claw's self-configuration workspace. Heartware is a secure, sandboxed file system where the agent can read and write its own configuration files (identity, preferences, memory, soul traits).
+
+## Installation
+
+```bash
+npm install @tinyclaw/heartware
+```
+
+## Core Concepts
+
+**Heartware** is a restricted workspace with:
+- **Allowed files** - Specific markdown files the agent can read/write
+- **Immutable files** - Read-only system files (SOUL.md, GUIDE.md)
+- **Audit logging** - All write operations are logged with SHA-256 hashes
+- **Automatic backups** - Every write creates a timestamped backup
+- **Rate limiting** - Prevents runaway write operations
+- **Content validation** - File size limits and content checks
+
+## Main Exports
+
+### HeartwareManager
+
+#### `new HeartwareManager(config: HeartwareConfig)`
+
+Create a new heartware manager.
+
+<ParamField path="config.baseDir" type="string" required>
+  Base directory for heartware files
+</ParamField>
+
+<ParamField path="config.userId" type="string" required>
+  User ID for audit logging
+</ParamField>
+
+<ParamField path="config.auditDir" type="string">
+  Audit log directory (default: `baseDir/audit`)
+</ParamField>
+
+<ParamField path="config.backupDir" type="string">
+  Backup directory (default: `baseDir/.backups`)
+</ParamField>
+
+<ParamField path="config.rateLimit" type="RateLimitConfig">
+  Rate limiting configuration
+</ParamField>
+
+```typescript
+import { HeartwareManager } from '@tinyclaw/heartware';
+
+const manager = new HeartwareManager({
+  baseDir: '/path/to/heartware',
+  userId: 'web:owner',
+  auditDir: '/path/to/audit',
+  backupDir: '/path/to/backups',
+});
+
+await manager.initialize();
+```
+
+### Methods
+
+#### `initialize(): Promise<void>`
+
+Initialize the heartware workspace (create directories, load templates).
+
+```typescript
+await manager.initialize();
+```
+
+#### `read(filename: string): Promise<string>`
+
+Read a heartware file.
+
+```typescript
+const identity = await manager.read('IDENTITY.md');
+const friend = await manager.read('FRIEND.md');
+```
+
+#### `write(filename: string, content: string): Promise<void>`
+
+Write to a heartware file (with validation, backup, and audit logging).
+
+```typescript
+await manager.write('FRIEND.md', '# Owner Profile\n\nLocation: Philippines');
+```
+
+#### `list(): Promise<string[]>`
+
+List all heartware files.
+
+```typescript
+const files = await manager.list();
+// => ['IDENTITY.md', 'FRIEND.md', 'FRIENDS.md', 'MEMORY-2026-03-01.md', ...]
+```
+
+#### `search(query: string): Promise<SearchResult[]>`
+
+Search across all heartware files.
+
+```typescript
+const results = await manager.search('Philippines');
+for (const result of results) {
+  console.log(`${result.filename}: ${result.preview}`);
+}
+```
+
+#### `close(): Promise<void>`
+
+Close the manager and cleanup resources.
+
+```typescript
+await manager.close();
+```
+
+## Loaders
+
+### `loadHeartwareContext(manager: HeartwareManager): Promise<string>`
+
+Load all heartware files and format them for agent system prompt injection.
+
+```typescript
+import { loadHeartwareContext } from '@tinyclaw/heartware';
+
+const context = await loadHeartwareContext(manager);
+// Inject into system prompt
+```
+
+### `loadMemoryByDate(manager: HeartwareManager, date: string): Promise<string>`
+
+Load a specific memory file by date.
+
+```typescript
+const memory = await loadMemoryByDate(manager, '2026-03-01');
+```
+
+### `loadMemoryRange(manager: HeartwareManager, startDate: string, endDate: string): Promise<string>`
+
+Load memory files in a date range.
+
+```typescript
+const memories = await loadMemoryRange(manager, '2026-03-01', '2026-03-07');
+```
+
+### `loadShieldContent(baseDir: string): Promise<string | null>`
+
+Load the SHIELD.md threat feed.
+
+```typescript
+const shieldMd = await loadShieldContent('/path/to/heartware');
+if (shieldMd) {
+  const shield = createShieldEngine(shieldMd);
+}
+```
+
+## Tools
+
+### `createHeartwareTools(manager: HeartwareManager): Tool[]`
+
+Create agent tools for heartware operations.
+
+```typescript
+import { createHeartwareTools } from '@tinyclaw/heartware';
+
+const tools = createHeartwareTools(manager);
+```
+
+**Generated Tools:**
+
+1. **heartware_read** - Read a heartware file
+2. **heartware_write** - Write to a heartware file (owner-only)
+3. **heartware_list** - List all heartware files
+4. **heartware_search** - Search across heartware files
+5. **identity_update** - Update IDENTITY.md (owner-only)
+6. **soul_update** - Update SOUL.md (immutable after bootstrap)
+7. **preferences_set** - Update PREFERENCES.md
+8. **memory_add** - Add to today's memory file
+9. **memory_daily_log** - Log to today's memory file
+10. **memory_recall** - Search memory files
+11. **bootstrap_complete** - Mark bootstrap as complete
+
+## Security Features
+
+### Sandbox
+
+```typescript
+import {
+  isAllowedFile,
+  isImmutableFile,
+  validatePath,
+  validateContent,
+  validateFileSize,
+} from '@tinyclaw/heartware';
+
+if (isAllowedFile('FRIEND.md')) {
+  // File is allowed
+}
+
+if (isImmutableFile('SOUL.md')) {
+  // File is read-only
+}
+
+const pathResult = validatePath('../../etc/passwd');
+if (!pathResult.valid) {
+  console.error(pathResult.error);
+}
+```
+
+**Allowed Files:**
+- `IDENTITY.md` - Agent name and tagline
+- `SOUL.md` - Personality traits (immutable after bootstrap)
+- `FRIEND.md` - Owner profile
+- `FRIENDS.md` - Friend profiles
+- `PREFERENCES.md` - Agent preferences
+- `GUIDE.md` - System guide (immutable)
+- `SHIELD.md` - Security threat feed (immutable)
+- `MEMORY-YYYY-MM-DD.md` - Daily memory logs
+
+### Audit Logging
+
+```typescript
+import { AuditLogger, computeContentHash } from '@tinyclaw/heartware';
+
+const audit = new AuditLogger('/path/to/audit');
+
+await audit.log({
+  userId: 'web:owner',
+  action: 'write',
+  filename: 'FRIEND.md',
+  contentHash: computeContentHash(content),
+  timestamp: Date.now(),
+});
+
+const entries = await audit.read();
+```
+
+### Backups
+
+```typescript
+import { BackupManager } from '@tinyclaw/heartware';
+
+const backups = new BackupManager('/path/to/backups');
+
+await backups.create('FRIEND.md', content);
+
+const available = await backups.list('FRIEND.md');
+const restored = await backups.restore('FRIEND.md', '2026-03-01T12:00:00.000Z');
+```
+
+### Rate Limiting
+
+```typescript
+import { RateLimiter } from '@tinyclaw/heartware';
+
+const limiter = new RateLimiter({
+  maxOperationsPerMinute: 10,
+  maxOperationsPerHour: 50,
+});
+
+if (limiter.checkLimit()) {
+  // Operation allowed
+} else {
+  throw new Error('Rate limit exceeded');
+}
+```
+
+## Soul Generator
+
+Generate unique personality traits using seed-based generation.
+
+```typescript
+import {
+  generateSoul,
+  generateSoulTraits,
+  generateRandomSeed,
+  renderSoulMarkdown,
+  parseSeed,
+} from '@tinyclaw/heartware';
+
+// Generate from seed
+const seed = generateRandomSeed();
+const soul = generateSoul(seed);
+
+// Or generate traits directly
+const traits = generateSoulTraits();
+
+// Render to markdown
+const markdown = renderSoulMarkdown(traits);
+
+// Parse seed back
+const parsed = parseSeed(seed);
+```
+
+### `SoulTraits`
+
+```typescript
+interface SoulTraits {
+  bigFive: BigFiveTraits;           // OCEAN personality model
+  communicationStyle: CommunicationStyle;
+  interactionStyle: InteractionStyle;
+  humorType: HumorType;
+  characterFlavor: CharacterFlavor;
+  preferences: SoulPreferences;
+  originStory: OriginStory;
+}
+```
+
+## Templates
+
+Pre-built templates for heartware files.
+
+```typescript
+import { getTemplate, getAllTemplates, hasTemplate } from '@tinyclaw/heartware';
+
+const identityTemplate = getTemplate('IDENTITY.md');
+const allTemplates = getAllTemplates();
+
+if (hasTemplate('FRIEND.md')) {
+  // Template exists
+}
+```
+
+## Creator Meta
+
+Fetch creator metadata from GitHub.
+
+```typescript
+import {
+  fetchCreatorMeta,
+  loadCachedCreatorMeta,
+  DEFAULT_META_URL,
+} from '@tinyclaw/heartware';
+
+const meta = await fetchCreatorMeta({
+  url: DEFAULT_META_URL,
+  cacheDir: '/path/to/cache',
+  ttl: 86400000, // 24 hours
+});
+
+console.log(meta.name);     // Creator name
+console.log(meta.bio);      // Bio
+console.log(meta.location); // Location
+```
+
+## Error Handling
+
+```typescript
+import { HeartwareSecurityError, isHeartwareSecurityError } from '@tinyclaw/heartware';
+
+try {
+  await manager.write('../../etc/passwd', 'hacked');
+} catch (error) {
+  if (isHeartwareSecurityError(error)) {
+    console.error(`Security error: ${error.code}`);
+  }
+}
+```
+
+**Error Codes:**
+- `INVALID_PATH` - Path validation failed
+- `FILE_NOT_ALLOWED` - File is not in the allowed list
+- `FILE_IMMUTABLE` - File is read-only
+- `CONTENT_TOO_LARGE` - File exceeds size limit
+- `RATE_LIMIT_EXCEEDED` - Too many operations
+- `CONTENT_VALIDATION_FAILED` - Content validation failed
+
+## Example Usage
+
+### Basic Setup
+
+```typescript
+import { HeartwareManager, createHeartwareTools, loadHeartwareContext } from '@tinyclaw/heartware';
+
+const manager = new HeartwareManager({
+  baseDir: '/home/user/.tinyclaw/heartware',
+  userId: 'web:owner',
+});
+
+await manager.initialize();
+
+// Load context for agent
+const context = await loadHeartwareContext(manager);
+
+// Create tools
+const tools = createHeartwareTools(manager);
+
+// Use with agent
+const agentContext = {
+  db,
+  provider,
+  learning,
+  tools,
+  heartwareContext: context,
+};
+```
+
+### Memory Management
+
+```typescript
+import { HeartwareManager, loadMemoryRange } from '@tinyclaw/heartware';
+
+const manager = new HeartwareManager({ baseDir, userId: 'web:owner' });
+await manager.initialize();
+
+// Add to today's memory
+await manager.write(
+  `MEMORY-${new Date().toISOString().split('T')[0]}.md`,
+  '# Daily Log\n\n- Met a new friend today'
+);
+
+// Load last 7 days of memories
+const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  .toISOString()
+  .split('T')[0];
+const today = new Date().toISOString().split('T')[0];
+const memories = await loadMemoryRange(manager, weekAgo, today);
+```
+
+## Related Packages
+
+- [@tinyclaw/core](/api/core) - Core agent runtime
+- [@tinyclaw/types](/api/types) - Type definitions
+- [@tinyclaw/shield](/api/shield) - Security enforcement

@@ -1,0 +1,229 @@
+---
+title: '@tinyclaw/sandbox'
+description: 'Lightweight sandboxed code execution using Bun Worker threads'
+---
+
+## Overview
+
+The `@tinyclaw/sandbox` package provides lightweight sandboxed JavaScript/TypeScript code execution for Tiny Claw using Bun Worker threads. It offers sub-millisecond boot time, minimal memory overhead, and a multi-layered security model.
+
+### Why Bun Workers?
+
+| Feature          | Docker (mrcloudchase)  | Bun Workers (Tiny Claw) |
+|------------------|------------------------|------------------------|
+| Boot time        | 1-3 seconds            | &lt;1ms                   |
+| Memory overhead  | ~50MB per container     | ~1MB per worker        |
+| Dependency       | Docker daemon required  | None — built into Bun  |
+| Portability      | Linux/Mac (daemon)      | Everywhere Bun runs    |
+| Teardown         | Container cleanup       | Worker.terminate()     |
+
+### Security Model
+
+- `process`, `require`, and `Bun` globals are blocked
+- `fetch`/`WebSocket` blocked by default (controllable via `allowNet`)
+- Filesystem access blocked by default (controllable via `allowFs`)
+- Configurable timeout with hard kill (default: 10s, max: 30s)
+- Each execution runs in a fresh worker (no state leakage)
+
+## Installation
+
+```bash
+bun add @tinyclaw/sandbox
+```
+
+## Usage
+
+### Basic Execution
+
+```typescript
+import { createSandbox } from '@tinyclaw/sandbox';
+
+const sandbox = createSandbox();
+
+const result = await sandbox.execute(`
+  return 2 + 2;
+`);
+
+console.log(result.output); // "4"
+console.log(result.success); // true
+console.log(result.durationMs); // &lt;1
+```
+
+### Execution with Input
+
+```typescript
+const result = await sandbox.executeWithInput(
+  `
+    return input.numbers.reduce((sum, n) => sum + n, 0);
+  `,
+  { numbers: [1, 2, 3, 4, 5] }
+);
+
+console.log(result.output); // "15"
+```
+
+### Configuration Options
+
+```typescript
+const result = await sandbox.execute(
+  `
+    const response = await fetch('https://api.example.com/data');
+    return await response.json();
+  `,
+  {
+    timeoutMs: 5000,      // 5 second timeout
+    allowNet: true,        // Enable network access
+    allowFs: false,        // Keep filesystem blocked
+  }
+);
+```
+
+### Cleanup
+
+```typescript
+// Terminate all active workers
+sandbox.shutdown();
+```
+
+## API Reference
+
+### `createSandbox()`
+
+Creates a new sandbox instance.
+
+**Returns:** `Sandbox`
+
+---
+
+### `Sandbox`
+
+Sandbox instance for executing code in isolation.
+
+#### `execute(code, config?)`
+
+Execute JavaScript/TypeScript code in a sandboxed environment.
+
+<ParamField path="code" type="string" required>
+  The code to execute. Can use `await` for async operations.
+</ParamField>
+
+<ParamField path="config" type="SandboxConfig">
+  Execution configuration options.
+</ParamField>
+
+<ParamField path="config.timeoutMs" type="number" default="10000">
+  Execution timeout in milliseconds. Maximum: 30000 (30 seconds).
+</ParamField>
+
+<ParamField path="config.allowNet" type="boolean" default="false">
+  Allow network access (fetch, WebSocket).
+</ParamField>
+
+<ParamField path="config.allowFs" type="boolean" default="false">
+  Allow filesystem access.
+</ParamField>
+
+<ResponseField name="result" type="Promise<SandboxResult>">
+  Execution result containing output, status, and timing information.
+</ResponseField>
+
+---
+
+#### `executeWithInput(code, input, config?)`
+
+Execute code with input data accessible via the `input` variable.
+
+<ParamField path="code" type="string" required>
+  The code to execute.
+</ParamField>
+
+<ParamField path="input" type="unknown" required>
+  Data to pass to the sandbox (available as `input` variable).
+</ParamField>
+
+<ParamField path="config" type="SandboxConfig">
+  Execution configuration options (same as `execute`).
+</ParamField>
+
+<ResponseField name="result" type="Promise<SandboxResult>">
+  Execution result.
+</ResponseField>
+
+---
+
+#### `shutdown()`
+
+Terminate all running workers and clean up resources.
+
+---
+
+### `SandboxResult`
+
+Result object returned by execution methods.
+
+<ResponseField name="success" type="boolean">
+  Whether the code executed successfully without errors or timeout.
+</ResponseField>
+
+<ResponseField name="output" type="string">
+  The return value of the code (stringified).
+</ResponseField>
+
+<ResponseField name="error" type="string | undefined">
+  Error message if execution failed.
+</ResponseField>
+
+<ResponseField name="durationMs" type="number">
+  Execution time in milliseconds.
+</ResponseField>
+
+## Error Handling
+
+```typescript
+const result = await sandbox.execute(
+  `
+    throw new Error('Something went wrong');
+  `
+);
+
+if (!result.success) {
+  console.error('Execution failed:', result.error);
+  console.log('Duration:', result.durationMs, 'ms');
+}
+```
+
+## Timeout Behavior
+
+```typescript
+const result = await sandbox.execute(
+  `
+    // Infinite loop
+    while (true) {}
+  `,
+  { timeoutMs: 1000 }
+);
+
+console.log(result.success); // false
+console.log(result.error); // "Execution timeout after 1000ms (hard kill)"
+```
+
+## Security Restrictions
+
+The following operations are blocked in the sandbox:
+
+```typescript
+// ❌ Blocked: Process access
+process.exit(1);
+
+// ❌ Blocked: Bun runtime
+Bun.write('file.txt', 'data');
+
+// ❌ Blocked: require() (unless explicitly enabled)
+const fs = require('fs');
+
+// ❌ Blocked: Network access (unless allowNet: true)
+await fetch('https://example.com');
+
+// ❌ Blocked: __dirname and __filename
+console.log(__dirname);
+```

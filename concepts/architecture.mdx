@@ -1,0 +1,300 @@
+---
+title: System Architecture
+description: Overview of Tiny Claw's native framework architecture with a tiny core and plugin-based design
+icon: building
+---
+
+# System Architecture
+
+Tiny Claw is built from scratch as a **native framework** with a philosophy of keeping the core tiny and making everything else pluggable. This architectural approach ensures minimal footprint, maximum flexibility, and zero dependency on external AI frameworks.
+
+## Core Design Principles
+
+<CardGroup cols={2}>
+  <Card title="Tiny Core" icon="cube">
+    The core stays minimal. All non-essential features live as plugins.
+  </Card>
+  <Card title="Plugin Everything" icon="plug">
+    Channels, providers, and tools are all plugins. Easy to extend.
+  </Card>
+  <Card title="Native, Not Wrapped" icon="code">
+    Every component is built from scratch with zero external AI framework dependencies.
+  </Card>
+  <Card title="Bun-Native" icon="rabbit-running">
+    Built on Bun for maximum performance and minimal footprint.
+  </Card>
+</CardGroup>
+
+## Architecture Diagram
+
+<Frame>
+  <img src="/images/architecture.png" alt="Tiny Claw Architecture" />
+</Frame>
+
+Everything above the plugin line is the **tiny core**. Channels, extra providers, and additional tools live as plugins in `plugins/`.
+
+## Layer Breakdown
+
+### User Layer
+
+Users interact with Tiny Claw through various channels:
+
+- **Web UI** — Discord-like interface with SSE streaming
+- **Discord** — Native Discord bot integration
+- **Friends** — Private chat invites for trusted users
+- **CLI** — Command-line interface (planned)
+
+### Channel Plugins (Pluggable)
+
+Channel plugins connect external messaging platforms to the agent loop:
+
+```typescript
+export interface ChannelPlugin extends PluginMeta {
+  readonly type: 'channel';
+  start(context: PluginRuntimeContext): Promise<void>;
+  stop(): Promise<void>;
+  getPairingTools?(secrets: SecretsManagerInterface, configManager: ConfigManagerInterface): Tool[];
+  sendToUser?(userId: string, message: OutboundMessage): Promise<void>;
+  readonly channelPrefix?: string;
+}
+```
+
+**Lifecycle:**
+1. `getPairingTools()` — called during boot to merge pairing tools
+2. `start(context)` — called after agentContext is built
+3. The plugin drives messages into the agent via `context.enqueue`
+4. `stop()` — called during graceful shutdown
+
+### Tiny Core (packages/core/)
+
+The core contains:
+
+<Steps>
+  <Step title="Router">
+    Smart query classification using 8-dimension scoring to route queries to appropriate providers
+  </Step>
+  <Step title="Memory">
+    Adaptive memory with episodic storage, FTS5 semantic search, and temporal decay
+  </Step>
+  <Step title="Built-in Tools">
+    Essential tools for memory management, file operations, and system control
+  </Step>
+  <Step title="Delegation">
+    Sub-agent orchestration with lifecycle management and blackboard collaboration
+  </Step>
+  <Step title="Heartware">
+    Personality engine with sandboxed self-configuration workspace
+  </Step>
+  <Step title="Shield">
+    Runtime SHIELD.md threat evaluation and enforcement
+  </Step>
+  <Step title="SQLite DB">
+    Persistent storage for messages, memory, agents, and templates
+  </Step>
+</Steps>
+
+### Tool Plugins (Pluggable)
+
+Additional capabilities can be added via tool plugins:
+
+```typescript
+export interface ToolsPlugin extends PluginMeta {
+  readonly type: 'tools';
+  createTools(context: AgentContext): Tool[];
+}
+```
+
+Future plugins might include:
+- Web browsing and scraping
+- Image generation and analysis
+- Calendar and scheduling
+- Email and notifications
+- Cloud service integrations
+
+### Model Provider Plugins (Pluggable)
+
+Provider plugins register additional LLM providers:
+
+```typescript
+export interface ProviderPlugin extends PluginMeta {
+  readonly type: 'provider';
+  createProvider(secrets: SecretsManagerInterface): Promise<Provider>;
+  getPairingTools?(secrets: SecretsManagerInterface, configManager: ConfigManagerInterface): Tool[];
+}
+```
+
+**Built-in:** Ollama Cloud (default)
+
+**Plugin examples:**
+- OpenAI (GPT-4, GPT-4o)
+- Anthropic (Claude)
+- Local Ollama
+- Google Gemini
+
+### LLM Layer
+
+Providers abstract the underlying LLM APIs:
+
+```typescript
+export interface Provider {
+  id: string;
+  name: string;
+  chat(messages: Message[], tools?: Tool[]): Promise<LLMResponse>;
+  isAvailable(): Promise<boolean>;
+}
+```
+
+The orchestrator handles:
+- Multi-provider support with automatic failover
+- Query tier routing (simple → cheap models, complex → powerful models)
+- Provider health checks and fallback chains
+
+## Package Structure
+
+```
+tinyclaw/
+  packages/          Core library packages (tiny, focused, no circular deps)
+    core/            Agent loop, database, built-in Ollama provider
+    types/           Shared interfaces (leaf dependency)
+    config/          Zod-validated configuration engine
+    compactor/       Context compaction engine (4-layer pipeline)
+    heartware/       Personality engine + safety layers
+    memory/          Adaptive memory with episodic + FTS5
+    delegation/      Sub-agent orchestration + blackboard
+    router/          Smart provider routing (8-dim classifier)
+    learning/        Behavioral pattern detection
+    sandbox/         Bun Worker code execution
+    shell/           Controlled shell execution with permission engine
+    shield/          Runtime SHIELD.md enforcement + anti-malware
+    pulse/           Cron-like proactive scheduler
+    queue/           Per-session message locking queue
+    intercom/        Pub/sub inter-agent communication
+    matcher/         Hybrid semantic matcher (TF-IDF + fuzzy + synonyms)
+    logger/          Singleton logger with emoji mappings
+    secrets/         Encrypted secrets management (AES-256-GCM)
+    plugins/         Plugin discovery and loading
+  plugins/           Plugin packages (keep the core tiny)
+    channel/         Messaging integrations (Discord, Friends, etc.)
+    provider/        LLM providers (OpenAI, etc.)
+  src/
+    cli/             CLI entry point
+    landing/         Official landing page (Svelte + Vite)
+    web/             Web UI (Svelte 5, Discord-like experience)
+```
+
+## Data Flow
+
+<Steps>
+  <Step title="User Input">
+    User sends a message through a channel (Web UI, Discord, Friends)
+  </Step>
+  <Step title="Channel Plugin">
+    Channel plugin receives the message and enqueues it via `context.enqueue(userId, message)`
+  </Step>
+  <Step title="Agent Loop">
+    Core agent loop processes the message:
+    - Loads conversation history from SQLite
+    - Retrieves relevant memories (episodic + semantic search)
+    - Builds system prompt with heartware personality context
+    - Classifies query complexity via Router
+    - Selects appropriate provider based on tier
+  </Step>
+  <Step title="LLM Call">
+    Provider sends messages to LLM and streams response back
+  </Step>
+  <Step title="Tool Execution">
+    If LLM requests tool calls:
+    - Shield evaluates each tool call for threats
+    - Tools are executed (memory, delegation, heartware, etc.)
+    - Results are fed back to LLM
+  </Step>
+  <Step title="Response">
+    Final response is:
+    - Saved to SQLite message history
+    - Analyzed by Learning engine for patterns
+    - Streamed back to user through the channel
+  </Step>
+</Steps>
+
+## Key Interfaces
+
+### AgentContext
+
+The central context object passed to tools and agents:
+
+```typescript packages/types/src/index.ts
+export interface AgentContext {
+  db: Database;
+  provider: Provider;
+  learning: LearningEngine;
+  tools: Tool[];
+  heartwareContext?: string;
+  secrets?: SecretsManagerInterface;
+  configManager?: ConfigManagerInterface;
+  modelName?: string;
+  providerName?: string;
+  ownerId?: string;
+  memory?: MemoryEngine;
+  shield?: ShieldEngine;
+  delegation?: DelegationContext;
+  compactor?: CompactionEngine;
+  updateContext?: string;
+}
+```
+
+### Tool Interface
+
+```typescript packages/types/src/index.ts
+export interface Tool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  execute(args: Record<string, unknown>): Promise<string>;
+}
+```
+
+### Message Format
+
+```typescript packages/types/src/index.ts
+export interface Message {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+}
+```
+
+## Why This Architecture?
+
+<AccordionGroup>
+  <Accordion title="Tiny Core = Low Overhead">
+    By keeping only essential features in core, Tiny Claw remains lightweight and fast. The entire core is under 50KB compressed.
+  </Accordion>
+  
+  <Accordion title="Plugins = Flexibility">
+    Users only load what they need. Don't need Discord? Don't load the plugin. Want to add GitHub integration? Write a tool plugin.
+  </Accordion>
+  
+  <Accordion title="Native = No Lock-In">
+    Unlike frameworks built on top of other AI frameworks, Tiny Claw owns its entire stack. No dependency on proprietary systems.
+  </Accordion>
+  
+  <Accordion title="Bun = Performance">
+    Bun is 3x faster than Node.js for I/O operations and provides a single binary runtime with built-in TypeScript support.
+  </Accordion>
+</AccordionGroup>
+
+## Comparison with Other Frameworks
+
+| | Tiny Claw | Other AI Agent Frameworks |
+|---|---|---|
+| **Architecture** | Native framework, built from scratch | Built on existing frameworks (Pi, Claude Code, Codex) |
+| **Core size** | Tiny by design, everything else is a plugin | Large monolith that grows over time |
+| **Runtime** | Bun-native, single binary | Node.js 22+, pnpm, multiple processes |
+| **Routing** | Adapts to whichever provider plugins you install | Hardcoded to a single provider |
+| **Security** | Built-in SHIELD.md anti-malware enforcement | No native threat model |
+| **UI** | Discord-like web experience out of the box | Terminal-only or separate UI dependency |
+
+<Card title="Next: Plugin System" icon="plug" href="/concepts/plugin-system">
+  Learn how to build and extend Tiny Claw with plugins
+</Card>

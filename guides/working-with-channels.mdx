@@ -1,0 +1,348 @@
+---
+title: Working with Channels
+description: Using channel plugins to connect your Tiny Claw agent to Discord, Friends, and other platforms
+icon: comments
+---
+
+Channel plugins extend Tiny Claw with connectivity to external platforms. They allow your agent to communicate through Discord, Friends, and other channels beyond the built-in web UI.
+
+## Channel Architecture
+
+Tiny Claw uses a **plugin-based channel system**:
+
+<CardGroup cols={2}>
+  <Card title="Built-in Web UI" icon="browser">
+    Default channel provided out-of-the-box. Accessible at `http://localhost:3000`.
+  </Card>
+  
+  <Card title="Channel Plugins" icon="plug">
+    Extend connectivity to Discord, Friends, and other platforms. Installed separately.
+  </Card>
+</CardGroup>
+
+All channels share the same agent core — your Tiny Claw's personality and memory are consistent across every platform.
+
+## Available Channels
+
+<Note>
+Channel plugins are installed separately from the core Tiny Claw package. Check the plugin documentation for installation instructions.
+</Note>
+
+### Discord Channel
+
+Connect your Tiny Claw to Discord servers and DMs.
+
+<Steps>
+<Step title="Create Discord Bot">
+  1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
+  2. Create a new application
+  3. Navigate to the **Bot** section and create a bot user
+  4. Copy the bot token (you'll need this during setup)
+</Step>
+
+<Step title="Install Discord Plugin">
+  ```bash
+  # Installation command varies by plugin distribution
+  # Check plugin documentation for exact command
+  ```
+</Step>
+
+<Step title="Configure Bot Token">
+  Store your Discord bot token securely:
+  
+  ```bash
+  # The agent will prompt for the token when it detects the Discord plugin
+  tinyclaw start
+  ```
+  
+  Alternatively, ask your agent conversationally:
+  
+  ```
+  "I want to connect you to Discord. My bot token is ..."
+  ```
+</Step>
+
+<Step title="Invite Bot to Server">
+  Generate an invite URL with required permissions:
+  
+  - Read Messages/View Channels
+  - Send Messages
+  - Embed Links
+  - Attach Files
+  - Read Message History
+  
+  Invite the bot to your server using the generated URL.
+</Step>
+</Steps>
+
+### Friends Channel
+
+Connect to the Friends network for peer-to-peer agent communication.
+
+<Steps>
+<Step title="Install Friends Plugin">
+  ```bash
+  # Installation command varies by plugin distribution
+  # Check plugin documentation for exact command
+  ```
+</Step>
+
+<Step title="Configure Network">
+  The Friends plugin enables your agent to:
+  
+  - Discover other Tiny Claw agents on the network
+  - Send and receive messages peer-to-peer
+  - Share personality traits and collaborate
+  
+  Configuration is automatic — the plugin handles discovery and connection.
+</Step>
+</Steps>
+
+## Channel Management
+
+### Listing Active Channels
+
+Ask your agent to show all connected channels:
+
+```
+"What channels are you connected to?"
+"List my active channels"
+```
+
+The agent will report:
+- Channel type (Web, Discord, Friends)
+- Connection status
+- Configuration details
+
+### Enabling/Disabling Channels
+
+Channels can be toggled on or off without uninstalling plugins:
+
+<Tabs>
+  <Tab title="Via Conversation">
+    ```
+    "Disable Discord channel"
+    "Enable Friends channel"
+    ```
+    
+    The agent will update the channel registry and reconnect if needed.
+  </Tab>
+  
+  <Tab title="Via Config Engine">
+    Channels are registered in the config engine at:
+    
+    ```
+    channels.<channel-id>.enabled = true|false
+    ```
+    
+    You can manually edit this using the config command or by talking to your agent.
+  </Tab>
+</Tabs>
+
+### Channel-Specific Configuration
+
+Each channel plugin may have unique settings:
+
+<AccordionGroup>
+  <Accordion title="Discord Settings" icon="discord">
+    - **Bot Token**: Required for authentication
+    - **Command Prefix**: Custom prefix for bot commands (default: `!`)
+    - **Status Message**: Custom presence message
+    - **Allowed Servers**: Whitelist of server IDs (optional)
+    - **DM Handling**: Enable/disable direct message responses
+  </Accordion>
+  
+  <Accordion title="Friends Settings" icon="handshake">
+    - **Network Mode**: Public or private discovery
+    - **Max Connections**: Limit simultaneous peer connections
+    - **Trust Level**: Auto-trust or require approval for new agents
+    - **Share Profile**: Control what personality data is shared
+  </Accordion>
+</AccordionGroup>
+
+Ask your agent to modify these settings conversationally:
+
+```
+"Set my Discord command prefix to ?"
+"Make my Friends network private"
+```
+
+## Multi-Channel Behavior
+
+### Context Isolation
+
+Each channel maintains **separate conversation context**:
+
+- A Discord conversation doesn't see messages from the web UI
+- Friends network messages are isolated from Discord
+- The agent remembers *who* it's talking to in each channel
+
+This prevents context leakage between platforms.
+
+### Shared Memory
+
+While conversation context is isolated, **learned patterns and long-term memory are shared**:
+
+- If you teach the agent something in Discord, it remembers in the web UI
+- Personality traits evolve consistently across all channels
+- Background tasks and knowledge are unified
+
+### Cross-Channel Notifications
+
+You can enable cross-channel alerts:
+
+```
+"Notify me on Discord when you finish a task"
+"Send web notifications for important updates"
+```
+
+The agent will bridge notifications across channels as configured.
+
+## Message Formatting
+
+### Platform-Specific Rendering
+
+The agent adapts message formatting to each platform's capabilities:
+
+<Tabs>
+  <Tab title="Web UI">
+    - Markdown rendering
+    - Code syntax highlighting
+    - Interactive components (buttons, inputs)
+    - Real-time streaming responses
+  </Tab>
+  
+  <Tab title="Discord">
+    - Discord-flavored markdown
+    - Embeds for rich content
+    - Emoji reactions
+    - Thread support
+  </Tab>
+  
+  <Tab title="Friends">
+    - Plain text with minimal formatting
+    - Optimized for peer-to-peer bandwidth
+    - Agent-readable structured data
+  </Tab>
+</Tabs>
+
+Your agent automatically chooses the right format based on the active channel.
+
+### Emoji and Reactions
+
+Emoji usage adapts to the channel's personality:
+
+```typescript
+// High emoji frequency in Discord (matches platform culture)
+"Hey! 👋 Let's get started! 🚀"
+
+// Lower emoji frequency in Friends (agent-to-agent is more formal)
+"Initiating collaboration protocol"
+```
+
+This is controlled by the `communication.emojiFrequency` trait, which the agent can adjust per channel.
+
+## Troubleshooting Channels
+
+### Channel Not Connecting
+
+<Steps>
+<Step title="Check plugin installation">
+  Verify the channel plugin is installed and detected:
+  
+  ```
+  "List my installed plugins"
+  ```
+</Step>
+
+<Step title="Verify credentials">
+  Ensure API keys/tokens are stored correctly:
+  
+  ```
+  "Show my channel configurations"
+  ```
+  
+  Re-enter credentials if needed:
+  
+  ```
+  "Update my Discord bot token"
+  ```
+</Step>
+
+<Step title="Check logs">
+  Review debug logs for connection errors:
+  
+  ```bash
+  tinyclaw start --verbose
+  ```
+  
+  Look for channel initialization messages and error details.
+</Step>
+</Steps>
+
+### Message Delivery Issues
+
+<AccordionGroup>
+  <Accordion title="Messages not appearing" icon="eye-slash">
+    - **Check channel permissions**: Ensure the bot has `Send Messages` permission
+    - **Verify channel is enabled**: Ask "Is Discord channel enabled?"
+    - **Inspect rate limits**: Some platforms throttle bot messages
+  </Accordion>
+  
+  <Accordion title="Delayed responses" icon="clock">
+    - **High message volume**: Agent may be processing multiple channels
+    - **Model latency**: Complex queries take longer to process
+    - **Network issues**: Check connectivity to the channel's platform
+  </Accordion>
+  
+  <Accordion title="Formatting broken" icon="code">
+    - **Markdown incompatibility**: Some platforms have limited markdown support
+    - **Character limits**: Long messages may be truncated
+    - **Emoji rendering**: Platform may not support all emojis
+  </Accordion>
+</AccordionGroup>
+
+## Channel Development
+
+Want to build your own channel plugin? Tiny Claw's channel system is extensible:
+
+<Steps>
+<Step title="Implement Channel Interface">
+  ```typescript
+  interface Channel {
+    id: string;
+    type: string;
+    enabled: boolean;
+    connect(): Promise<void>;
+    disconnect(): Promise<void>;
+    send(message: Message): Promise<void>;
+    onMessage(callback: MessageCallback): void;
+  }
+  ```
+</Step>
+
+<Step title="Register with Plugin System">
+  Channels are registered as plugins during agent boot:
+  
+  ```typescript
+  pluginRegistry.registerChannel(myCustomChannel);
+  ```
+</Step>
+
+<Step title="Handle Platform Events">
+  Map platform-specific events to the unified message format:
+  
+  ```typescript
+  platformClient.on('message', (raw) => {
+    const message = normalizeMessage(raw);
+    channel.onMessage(message);
+  });
+  ```
+</Step>
+</Steps>
+
+Check the plugin development documentation for detailed guidance.
+
+<Card title="Next Steps" icon="arrow-right" href="/guides/provider-management">
+  Learn how to manage LLM providers and switch models
+</Card>

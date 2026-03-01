@@ -1,0 +1,245 @@
+---
+title: Plugin System Overview
+description: Learn about Tiny Claw's plugin architecture and how to extend its capabilities
+---
+
+## Introduction
+
+Tiny Claw's plugin system allows you to extend its capabilities by adding new channels, LLM providers, and tools. The plugin architecture is designed to be simple, type-safe, and discoverable.
+
+## Plugin Types
+
+Tiny Claw supports three types of plugins:
+
+### Channel Plugins
+
+Channel plugins connect external messaging platforms (Discord, Slack, web chat, etc.) to the Tiny Claw agent loop. They handle incoming messages from users and deliver responses back through the platform.
+
+**Examples:**
+- `@tinyclaw/plugin-channel-discord` - Discord bot integration
+- `@tinyclaw/plugin-channel-friends` - Web-based friends chat
+
+[Learn more about channel plugins →](/plugins/channel-plugins)
+
+### Provider Plugins
+
+Provider plugins add new LLM providers to the routing system. They implement the `Provider` interface to communicate with different AI model APIs.
+
+**Examples:**
+- `@tinyclaw/plugin-provider-openai` - OpenAI GPT models
+- Built-in Ollama provider
+
+[Learn more about provider plugins →](/plugins/provider-plugins)
+
+### Tools Plugins
+
+Tools plugins contribute additional capabilities to the agent by adding new tools that can be invoked during conversations.
+
+**Examples:**
+- File system operations
+- API integrations
+- Custom business logic
+
+[Learn more about tools plugins →](/plugins/tool-plugins)
+
+## Plugin Architecture
+
+### Common Plugin Interface
+
+All plugins share common metadata fields:
+
+<ParamField path="id" type="string" required>
+  npm package name (e.g., `@tinyclaw/plugin-channel-discord`)
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Human-readable name shown at startup (e.g., "Discord")
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Short description displayed during plugin loading
+</ParamField>
+
+<ParamField path="type" type="'channel' | 'provider' | 'tools'" required>
+  Plugin type discriminant
+</ParamField>
+
+<ParamField path="version" type="string" required>
+  Semantic version of the plugin
+</ParamField>
+
+### Discovery and Loading
+
+Plugins are discovered through the configuration system, not filesystem scanning:
+
+1. Plugins are registered in `config` under `plugins.enabled` array
+2. At boot time, Tiny Claw dynamically imports each package by name
+3. The default export must be a valid plugin object
+4. Failed imports are logged and skipped (non-fatal)
+
+```typescript
+// plugins.enabled in config
+[
+  "@tinyclaw/plugin-channel-discord",
+  "@tinyclaw/plugin-provider-openai"
+]
+```
+
+### Lifecycle Flow
+
+1. **Boot**: Configuration loads `plugins.enabled` list
+2. **Import**: Dynamic import of each package
+3. **Validation**: Check plugin structure and type
+4. **Registration**: Group by type (channels, providers, tools)
+5. **Pairing Tools**: Merge pairing tools into agent context
+6. **Initialization**: Call type-specific initialization methods
+7. **Runtime**: Plugins interact with core system
+8. **Shutdown**: Cleanup via `stop()` methods
+
+## Pairing Flow
+
+Many plugins support a conversational pairing flow:
+
+1. Plugin is added to `plugins.enabled` (manually or via agent)
+2. Plugin provides pairing tools via `getPairingTools()` method
+3. These tools appear in the agent's tool list
+4. User asks the agent to configure the plugin
+5. Agent invokes pairing tools to store credentials and enable features
+6. Agent restarts to load the fully configured plugin
+
+### Example Pairing
+
+```
+User: "Connect my Discord bot"
+Agent: [calls discord_pair tool]
+Agent: "Discord paired! The bot token is stored securely. 
+       Use tinyclaw_restart to connect the bot."
+User: "restart"
+[Tiny Claw restarts]
+Agent: "Discord bot ready: TinyClaw#1234"
+```
+
+## Plugin Development Workflow
+
+### 1. Choose Your Plugin Type
+
+Decide whether you're building a channel, provider, or tools plugin based on your use case.
+
+### 2. Set Up Project Structure
+
+```bash
+mkdir my-plugin
+cd my-plugin
+npm init -y
+```
+
+### 3. Install Dependencies
+
+```bash
+npm install @tinyclaw/types @tinyclaw/logger
+```
+
+### 4. Implement the Interface
+
+Create your plugin following the appropriate interface (see type-specific guides).
+
+### 5. Build and Test
+
+Add a build script and compile your plugin:
+
+```json
+{
+  "scripts": {
+    "build": "tsc"
+  }
+}
+```
+
+### 6. Local Testing
+
+Test locally before publishing:
+
+```bash
+# In your plugin directory
+npm link
+
+# In your Tiny Claw installation
+npm link @yourname/plugin-name
+```
+
+Add to config:
+
+```bash
+tinyclaw config set plugins.enabled '["@yourname/plugin-name"]'
+```
+
+### 7. Publish to npm
+
+Once tested, publish your plugin:
+
+```bash
+npm publish --access public
+```
+
+[Learn more about publishing →](/plugins/publishing)
+
+## Best Practices
+
+### Error Handling
+
+- Always wrap async operations in try-catch blocks
+- Return user-friendly error messages from tools
+- Log errors using `@tinyclaw/logger` for debugging
+- Fail gracefully - don't crash the entire system
+
+### Security
+
+- Never log or expose secrets
+- Use `SecretsManagerInterface` for credential storage
+- Validate all user inputs in tool parameters
+- Follow the principle of least privilege
+
+### Performance
+
+- Keep initialization fast - defer heavy operations
+- Use connection pooling for external services
+- Implement proper cleanup in `stop()` methods
+- Avoid blocking the event loop
+
+### Compatibility
+
+- Specify peer dependencies correctly
+- Test against multiple Tiny Claw versions
+- Document breaking changes in your changelog
+- Follow semantic versioning
+
+## Type Safety
+
+All plugins are fully typed using TypeScript interfaces from `@tinyclaw/types`. This provides:
+
+- Compile-time type checking
+- IDE autocomplete and IntelliSense
+- Runtime validation during plugin loading
+- Clear API contracts
+
+## Examples
+
+Explore the built-in plugins for reference implementations:
+
+- **Discord Channel**: `/workspace/source/plugins/channel/plugin-channel-discord`
+- **Friends Chat**: `/workspace/source/plugins/channel/plugin-channel-friends`
+- **OpenAI Provider**: `/workspace/source/plugins/provider/plugin-provider-openai`
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Channel Plugins" icon="comments" href="/plugins/channel-plugins">
+    Build messaging platform integrations
+  </Card>
+  <Card title="Provider Plugins" icon="brain" href="/plugins/provider-plugins">
+    Add new LLM providers
+  </Card>
+  <Card title="Tools Plugins" icon="wrench" href="/plugins/tool-plugins">
+    Extend agent capabilities
+  </Card>
+</CardGroup>

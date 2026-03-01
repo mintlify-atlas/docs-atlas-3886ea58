@@ -1,0 +1,457 @@
+---
+title: Channel Plugins
+description: Create channel plugins to connect Tiny Claw to messaging platforms
+---
+
+## Overview
+
+Channel plugins connect external messaging platforms (Discord, Slack, web chat, etc.) to the Tiny Claw agent loop. They handle bidirectional communication: receiving messages from users and delivering responses back through the platform.
+
+## ChannelPlugin Interface
+
+Channel plugins implement the `ChannelPlugin` interface from `@tinyclaw/types`:
+
+```typescript
+interface ChannelPlugin extends PluginMeta {
+  readonly type: 'channel';
+  
+  /** Boot the channel */
+  start(context: PluginRuntimeContext): Promise<void>;
+  
+  /** Tear down - disconnect and cleanup */
+  stop(): Promise<void>;
+  
+  /** Return pairing tools for configuration (optional) */
+  getPairingTools?(
+    secrets: SecretsManagerInterface,
+    configManager: ConfigManagerInterface
+  ): Tool[];
+  
+  /** Send outbound messages to users (optional) */
+  sendToUser?(userId: string, message: OutboundMessage): Promise<void>;
+  
+  /** Channel prefix for userId routing (optional) */
+  readonly channelPrefix?: string;
+}
+```
+
+### Interface Fields
+
+<ParamField path="type" type="'channel'" required>
+  Must be `'channel'` for channel plugins
+</ParamField>
+
+<ParamField path="start" type="function" required>
+  Called after agent context is built. Initialize platform connections here.
+  
+  **Parameters:**
+  - `context: PluginRuntimeContext` - Runtime context with agent access
+  
+  **Returns:** `Promise<void>`
+</ParamField>
+
+<ParamField path="stop" type="function" required>
+  Called during graceful shutdown. Clean up connections and pending state.
+  
+  **Returns:** `Promise<void>`
+</ParamField>
+
+<ParamField path="getPairingTools" type="function">
+  Optional method that returns tools for conversational configuration.
+  
+  **Parameters:**
+  - `secrets: SecretsManagerInterface` - For storing API keys/tokens
+  - `configManager: ConfigManagerInterface` - For storing configuration
+  
+  **Returns:** `Tool[]`
+</ParamField>
+
+<ParamField path="sendToUser" type="function">
+  Optional method for sending proactive messages to users (nudges, task results, etc.).
+  
+  **Parameters:**
+  - `userId: string` - Target user (e.g., `discord:123456`)
+  - `message: OutboundMessage` - Message to deliver
+  
+  **Returns:** `Promise<void>`
+</ParamField>
+
+<ParamField path="channelPrefix" type="string">
+  Optional prefix for userId routing (e.g., `'discord'`, `'friend'`). Used by the outbound gateway to route messages to the correct channel.
+</ParamField>
+
+## PluginRuntimeContext
+
+The runtime context provides everything needed to interact with the agent:
+
+```typescript
+interface PluginRuntimeContext {
+  /** Push a message into the session queue and run the agent loop */
+  enqueue(userId: string, message: string): Promise<string>;
+  
+  /** The initialized AgentContext */
+  agentContext: AgentContext;
+  
+  /** Secrets manager for resolving tokens */
+  secrets: SecretsManagerInterface;
+  
+  /** Config manager for reading/writing channel config */
+  configManager: ConfigManagerInterface;
+  
+  /** Outbound gateway for sending proactive messages */
+  gateway?: OutboundGateway;
+}
+```
+
+<ParamField path="enqueue" type="function" required>
+  Core method to send user messages into the agent loop.
+  
+  **Parameters:**
+  - `userId: string` - Unique user identifier (prefixed, e.g., `discord:123`)
+  - `message: string` - User's message text
+  
+  **Returns:** `Promise<string>` - Agent's response
+</ParamField>
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Full agent context including database, provider, tools, and memory engine
+</ParamField>
+
+<ParamField path="secrets" type="SecretsManagerInterface" required>
+  Access to encrypted secrets storage for API tokens
+</ParamField>
+
+<ParamField path="configManager" type="ConfigManagerInterface" required>
+  Access to persistent configuration
+</ParamField>
+
+<ParamField path="gateway" type="OutboundGateway">
+  Optional outbound gateway for proactive messaging
+</ParamField>
+
+## Complete Example: Discord Plugin
+
+Here's the full implementation of the Discord channel plugin:
+
+```typescript
+import { logger } from '@tinyclaw/logger';
+import type {
+  ChannelPlugin,
+  ConfigManagerInterface,
+  OutboundMessage,
+  PluginRuntimeContext,
+  SecretsManagerInterface,
+  Tool,
+} from '@tinyclaw/types';
+import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
+import { createDiscordPairingTools } from './pairing.js';
+
+let client: Client | null = null;
+
+const discordPlugin: ChannelPlugin = {
+  id: '@tinyclaw/plugin-channel-discord',
+  name: 'Discord',
+  description: 'Connect Tiny Claw to a Discord bot',
+  type: 'channel',
+  version: '0.1.0',
+  channelPrefix: 'discord',
+
+  getPairingTools(secrets, configManager) {
+    return createDiscordPairingTools(secrets, configManager);
+  },
+
+  async start(context: PluginRuntimeContext): Promise<void> {
+    const isEnabled = context.configManager.get<boolean>(
+      'channels.discord.enabled'
+    );
+    if (!isEnabled) {
+      logger.info('Discord plugin: not enabled');
+      return;
+    }
+
+    const token = await context.secrets.retrieve('channel.discord.token');
+    if (!token) {
+      logger.warn('Discord plugin: no token found');
+      return;
+    }
+
+    client = new Client({
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages,
+      ],
+      partials: [Partials.Channel],
+    });
+
+    client.once(Events.ClientReady, (readyClient) => {
+      logger.info(`Discord bot ready: ${readyClient.user.tag}`);
+    });
+
+    client.on(Events.MessageCreate, async (msg) => {
+      if (msg.author.bot) return;
+
+      const isDM = msg.channel.isDMBased();
+      const isMention = client?.user 
+        ? msg.mentions.users.has(client.user.id) 
+        : false;
+
+      if (!isDM && !isMention) return;
+
+      const rawContent = msg.content
+        .replace(/<@!?[\d]+>/g, '')
+        .trim();
+      if (!rawContent) return;
+
+      // Prefix userId to isolate Discord sessions
+      const userId = `discord:${msg.author.id}`;
+
+      try {
+        await msg.channel.sendTyping();
+        const response = await context.enqueue(userId, rawContent);
+        await msg.reply(response);
+      } catch (err) {
+        logger.error('Discord error:', err);
+        await msg.reply('Sorry, I ran into an error.');
+      }
+    });
+
+    await client.login(token);
+    logger.info('Discord bot connected');
+  },
+
+  async sendToUser(userId: string, message: OutboundMessage): Promise<void> {
+    if (!client) {
+      throw new Error('Discord client is not connected');
+    }
+
+    const discordId = userId.replace(/^discord:/, '');
+    const user = await client.users.fetch(discordId);
+    await user.send(message.content);
+    
+    logger.info(`Discord: sent outbound message to ${userId}`);
+  },
+
+  async stop(): Promise<void> {
+    if (client) {
+      client.destroy();
+      client = null;
+      logger.info('Discord bot disconnected');
+    }
+  },
+};
+
+export default discordPlugin;
+```
+
+## Pairing Tools Example
+
+Pairing tools enable conversational configuration:
+
+```typescript
+import type {
+  ConfigManagerInterface,
+  SecretsManagerInterface,
+  Tool
+} from '@tinyclaw/types';
+import { buildChannelKeyName } from '@tinyclaw/types';
+
+const DISCORD_TOKEN_SECRET_KEY = buildChannelKeyName('discord');
+const DISCORD_ENABLED_CONFIG_KEY = 'channels.discord.enabled';
+const DISCORD_PLUGIN_ID = '@tinyclaw/plugin-channel-discord';
+
+export function createDiscordPairingTools(
+  secrets: SecretsManagerInterface,
+  configManager: ConfigManagerInterface
+): Tool[] {
+  return [
+    {
+      name: 'discord_pair',
+      description: 'Pair Tiny Claw with a Discord bot',
+      parameters: {
+        type: 'object',
+        properties: {
+          token: {
+            type: 'string',
+            description: 'Discord bot token',
+          },
+        },
+        required: ['token'],
+      },
+      async execute(args: Record<string, unknown>): Promise<string> {
+        const token = args.token as string;
+        
+        // Store token securely
+        await secrets.store(DISCORD_TOKEN_SECRET_KEY, token.trim());
+        
+        // Enable channel
+        configManager.set(DISCORD_ENABLED_CONFIG_KEY, true);
+        
+        // Add to enabled plugins
+        const current = configManager.get<string[]>('plugins.enabled') ?? [];
+        if (!current.includes(DISCORD_PLUGIN_ID)) {
+          configManager.set('plugins.enabled', [...current, DISCORD_PLUGIN_ID]);
+        }
+        
+        return 'Discord bot paired! Use tinyclaw_restart to connect.';
+      },
+    },
+    {
+      name: 'discord_unpair',
+      description: 'Disconnect the Discord bot',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+      async execute(): Promise<string> {
+        configManager.set(DISCORD_ENABLED_CONFIG_KEY, false);
+        
+        const current = configManager.get<string[]>('plugins.enabled') ?? [];
+        configManager.set(
+          'plugins.enabled',
+          current.filter((id) => id !== DISCORD_PLUGIN_ID)
+        );
+        
+        return 'Discord disabled. Use tinyclaw_restart to apply.';
+      },
+    },
+  ];
+}
+```
+
+## UserId Prefixing
+
+Channel plugins should prefix userIds to prevent collisions:
+
+```typescript
+// Format: <channel>:<platform-id>
+const userId = `discord:${msg.author.id}`;
+const userId = `friend:${username}`;
+const userId = `web:owner`;
+```
+
+This allows:
+- Isolated conversation histories per channel
+- Proper routing for outbound messages
+- Multi-channel user identification
+
+## Outbound Messaging
+
+Implement `sendToUser()` to support proactive messaging:
+
+```typescript
+interface OutboundMessage {
+  content: string;
+  priority: 'urgent' | 'normal' | 'low';
+  source: 'background_task' | 'sub_agent' | 'reminder' | 'pulse' | 'system' | 'agent';
+  metadata?: Record<string, unknown>;
+}
+```
+
+Example implementation:
+
+```typescript
+async sendToUser(userId: string, message: OutboundMessage): Promise<void> {
+  // Parse userId to extract platform ID
+  const platformId = userId.replace(/^discord:/, '');
+  
+  // Fetch user and send message
+  const user = await client.users.fetch(platformId);
+  await user.send(message.content);
+}
+```
+
+## Testing Your Channel Plugin
+
+### 1. Local Development
+
+```bash
+# Link your plugin locally
+npm link
+
+# In Tiny Claw directory
+npm link @yourname/plugin-channel-name
+```
+
+### 2. Enable the Plugin
+
+```bash
+tinyclaw config set plugins.enabled '["@yourname/plugin-channel-name"]'
+```
+
+### 3. Test Pairing Flow
+
+Start Tiny Claw and test the pairing conversation:
+
+```
+User: "Connect my [platform] account"
+Agent: [calls your_pair tool]
+```
+
+### 4. Verify Message Flow
+
+- Send messages from the platform
+- Verify they appear in Tiny Claw
+- Check responses are delivered back
+- Test error handling
+
+### 5. Test Outbound Messages
+
+If implementing `sendToUser()`, test proactive messaging:
+
+```typescript
+// Trigger a background task or nudge
+context.gateway?.send(userId, {
+  content: 'Test nudge',
+  priority: 'normal',
+  source: 'system'
+});
+```
+
+## Best Practices
+
+### Connection Management
+
+- Initialize connections in `start()`
+- Store connection objects at module level
+- Clean up properly in `stop()`
+- Handle reconnection logic
+
+### Error Handling
+
+```typescript
+try {
+  await msg.channel.sendTyping();
+  const response = await context.enqueue(userId, rawContent);
+  await msg.reply(response);
+} catch (err) {
+  logger.error('Error handling message:', err);
+  await msg.reply('Sorry, I encountered an error.');
+}
+```
+
+### Rate Limiting
+
+- Respect platform rate limits
+- Implement queuing for outbound messages
+- Use exponential backoff for retries
+
+### Security
+
+- Never log tokens or credentials
+- Validate incoming message sources
+- Sanitize user input before processing
+- Use secrets manager for all credentials
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Provider Plugins" icon="brain" href="/plugins/provider-plugins">
+    Learn about provider plugins
+  </Card>
+  <Card title="Publishing" icon="upload" href="/plugins/publishing">
+    Publish your plugin to npm
+  </Card>
+</CardGroup>

@@ -1,0 +1,484 @@
+---
+title: Installation
+description: Complete installation guide for Tiny Claw with prerequisites, configuration options, and troubleshooting for common issues.
+---
+
+# Installation
+
+This guide covers everything you need to install and configure Tiny Claw, including system requirements, installation steps, and advanced configuration options.
+
+## Prerequisites
+
+### Bun Runtime (Required)
+
+Tiny Claw is **Bun-native**, meaning it's built specifically for the Bun JavaScript runtime. You must have Bun installed to run Tiny Claw.
+
+<Tabs>
+  <Tab title="macOS / Linux">
+    Install Bun using the official installer:
+    
+    ```bash
+    curl -fsSL https://bun.sh/install | bash
+    ```
+    
+    The installer will:
+    - Download the latest Bun binary
+    - Install it to `~/.bun/bin`
+    - Add it to your shell's PATH
+    
+    Restart your terminal and verify:
+    
+    ```bash
+    bun --version
+    ```
+  </Tab>
+  
+  <Tab title="Windows">
+    Install Bun on Windows using PowerShell:
+    
+    ```powershell
+    powershell -c "irm bun.sh/install.ps1 | iex"
+    ```
+    
+    Verify installation:
+    
+    ```powershell
+    bun --version
+    ```
+    
+    <Note>
+      Windows support for Bun is experimental. Some features may not work as expected. Consider using WSL2 for the best experience.
+    </Note>
+  </Tab>
+  
+  <Tab title="Docker">
+    Use the official Bun Docker image:
+    
+    ```dockerfile
+    FROM oven/bun:latest
+    
+    WORKDIR /app
+    COPY package.json bun.lockb ./
+    RUN bun install
+    
+    COPY . .
+    RUN bun run build
+    
+    CMD ["bun", "start"]
+    ```
+  </Tab>
+</Tabs>
+
+### System Requirements
+
+| Requirement | Minimum | Recommended |
+|-------------|---------|-------------|
+| **OS** | Linux, macOS, Windows (WSL2) | Linux, macOS |
+| **RAM** | 512 MB | 2 GB |
+| **Disk Space** | 100 MB | 500 MB (including logs, memory) |
+| **Bun Version** | 1.0.0+ | Latest stable |
+| **Network** | Internet connection for Ollama Cloud | Stable broadband |
+
+### Optional Dependencies
+
+For certain features, you may need:
+
+- **Git** - For cloning the repository and version control
+- **Clipboard tool** - `xclip` or `xsel` (Linux) for copying recovery credentials during setup
+- **Authenticator app** - For TOTP two-factor authentication (e.g., Google Authenticator, Authy)
+
+## Installation Steps
+
+<Steps>
+  <Step title="Install Bun Runtime">
+    Follow the [Bun installation instructions](https://bun.sh/docs/installation) for your platform.
+    
+    ```bash
+    curl -fsSL https://bun.sh/install | bash
+    ```
+  </Step>
+  
+  <Step title="Clone Repository">
+    Clone the Tiny Claw repository from GitHub:
+    
+    ```bash
+    git clone https://github.com/warengonzaga/tinyclaw.git
+    cd tinyclaw
+    ```
+    
+    Or download the source as a ZIP file and extract it.
+  </Step>
+  
+  <Step title="Install Dependencies">
+    Install all workspace dependencies using Bun:
+    
+    ```bash
+    bun install
+    ```
+    
+    This installs:
+    - Core packages (`@tinyclaw/*`)
+    - Plugin packages (channels, providers)
+    - Web UI dependencies
+    - CLI dependencies
+    - Development tools
+  </Step>
+  
+  <Step title="Build Packages (Optional)">
+    If you're developing or making changes, build all packages:
+    
+    ```bash
+    bun run build
+    ```
+    
+    For production deployment, this step is recommended to optimize performance.
+  </Step>
+  
+  <Step title="Run Setup Wizard">
+    Complete the first-time setup:
+    
+    ```bash
+    bun run cli setup
+    ```
+    
+    Or use the web-based wizard:
+    
+    ```bash
+    bun run cli setup --web
+    ```
+    
+    See the [Quick Start guide](/quickstart#setup-wizard) for detailed wizard instructions.
+  </Step>
+  
+  <Step title="Start Tiny Claw">
+    Launch your AI companion:
+    
+    ```bash
+    bun start
+    ```
+    
+    Open [http://localhost:3000](http://localhost:3000) to access the web UI.
+  </Step>
+</Steps>
+
+## Configuration
+
+Tiny Claw is **self-configuring** - it sets itself up through the setup wizard and can modify its own configuration through conversation. However, you can manually adjust settings if needed.
+
+### Data Directory
+
+By default, Tiny Claw stores all data in `~/.tinyclaw`. You can customize this:
+
+```bash
+export TINYCLAW_DATA_DIR="/path/to/custom/directory"
+bun start
+```
+
+The data directory contains:
+
+```
+~/.tinyclaw/
+  config.db           # Configuration database (SQLite)
+  memory.db           # Memory and conversation history
+  secrets.enc         # Encrypted secrets (AES-256-GCM)
+  logs/               # Application logs
+  backups/            # Automatic backups
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TINYCLAW_DATA_DIR` | `~/.tinyclaw` | Data directory path |
+| `PORT` | `3000` | Web UI server port |
+| `LOG_LEVEL` | `info` | Log verbosity (`error`, `info`, `debug`) |
+| `NODE_ENV` | `production` | Environment mode |
+
+### Port Configuration
+
+Change the web UI port:
+
+```bash
+PORT=8080 bun start
+```
+
+Or set it permanently in your shell profile:
+
+```bash
+export PORT=8080
+```
+
+### Provider Configuration
+
+Tiny Claw defaults to **Ollama Cloud** but supports multiple providers:
+
+- **Ollama Cloud** (default) - Free tier, generous limits
+- **OpenAI** - GPT-4, GPT-3.5 via plugin
+- **Anthropic** - Claude via plugin
+
+To configure additional providers, use the CLI:
+
+```bash
+bun run cli config
+```
+
+### Security Settings
+
+Tiny Claw includes built-in security features:
+
+- **AES-256-GCM encryption** for secrets storage
+- **TOTP two-factor authentication** for web access
+- **Backup codes** for account recovery
+- **Path sandboxing** for code execution
+- **SHIELD.md enforcement** for anti-malware protection
+
+<Warning>
+  Never share your recovery token or backup codes. Store them securely (password manager, encrypted vault, or offline).
+</Warning>
+
+## Advanced Installation
+
+### Docker Deployment
+
+Deploy Tiny Claw using Docker:
+
+```dockerfile
+FROM oven/bun:latest
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json bun.lockb ./
+RUN bun install --frozen-lockfile
+
+# Copy source
+COPY . .
+
+# Build all packages
+RUN bun run build:all
+
+# Expose port
+EXPOSE 3000
+
+# Start command
+CMD ["bun", "start"]
+```
+
+Build and run:
+
+```bash
+docker build -t tinyclaw .
+docker run -p 3000:3000 -v ~/.tinyclaw:/root/.tinyclaw tinyclaw
+```
+
+### Systemd Service (Linux)
+
+Create a systemd service for automatic startup:
+
+```ini
+[Unit]
+Description=Tiny Claw AI Agent
+After=network.target
+
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/path/to/tinyclaw
+Environment="PATH=/home/youruser/.bun/bin:/usr/bin"
+ExecStart=/home/youruser/.bun/bin/bun start
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl enable tinyclaw.service
+sudo systemctl start tinyclaw.service
+```
+
+### Development Installation
+
+For development with hot reload:
+
+```bash
+# Install dependencies
+bun install
+
+# Run in dev mode
+bun dev
+
+# Or run UI separately
+bun dev:ui
+```
+
+Development commands:
+
+```bash
+bun test                # Run test suite
+bun run lint            # Check code style
+bun run lint:fix        # Auto-fix linting issues
+bun run format          # Format code with Biome
+bun run build:packages  # Build core packages only
+bun run build:plugins   # Build plugin packages only
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Bun command not found">
+    After installing Bun, you may need to restart your terminal or manually add it to PATH:
+    
+    ```bash
+    export PATH="$HOME/.bun/bin:$PATH"
+    ```
+    
+    Add this to your `~/.bashrc`, `~/.zshrc`, or equivalent shell config file.
+  </Accordion>
+  
+  <Accordion title="Installation fails with permission errors">
+    - On Linux/macOS, avoid using `sudo` with Bun
+    - Ensure you have write permissions to `~/.tinyclaw`
+    - Check file ownership: `ls -la ~/.tinyclaw`
+    - Fix permissions: `chmod -R u+w ~/.tinyclaw`
+  </Accordion>
+  
+  <Accordion title="Dependencies won't install">
+    - Clear Bun cache: `bun pm cache rm`
+    - Delete `node_modules` and reinstall: `rm -rf node_modules && bun install`
+    - Check network connectivity
+    - Try with verbose logging: `bun install --verbose`
+  </Accordion>
+  
+  <Accordion title="Port already in use">
+    If port 3000 is occupied:
+    
+    ```bash
+    # Find process using port 3000
+    lsof -i :3000
+    
+    # Use a different port
+    PORT=8080 bun start
+    ```
+  </Accordion>
+  
+  <Accordion title="Database locked errors">
+    If you see "database is locked" errors:
+    
+    - Ensure only one Tiny Claw instance is running
+    - Stop all processes: `pkill -f tinyclaw`
+    - Remove lock file: `rm ~/.tinyclaw/*.db-wal ~/.tinyclaw/*.db-shm`
+    - Restart: `bun start`
+  </Accordion>
+  
+  <Accordion title="Build fails on Windows">
+    Windows support for Bun is experimental. Recommended solutions:
+    
+    1. **Use WSL2** (Windows Subsystem for Linux):
+       ```bash
+       wsl --install
+       ```
+       Then install Bun inside WSL2 and run Tiny Claw there.
+    
+    2. **Use Docker Desktop** for Windows
+    
+    3. Wait for Bun's Windows support to stabilize
+  </Accordion>
+  
+  <Accordion title="Memory or performance issues">
+    - Increase available RAM
+    - Clear old memory: Use the web UI to prune old conversations
+    - Compact database: `bun run cli backup` then restore
+    - Check disk space: `df -h ~/.tinyclaw`
+    - Monitor with: `bun start --verbose`
+  </Accordion>
+</AccordionGroup>
+
+## Upgrading
+
+To upgrade to the latest version:
+
+<Steps>
+  <Step title="Backup Your Data">
+    Create a backup before upgrading:
+    
+    ```bash
+    bun run cli backup export my-backup.tinyclaw
+    ```
+  </Step>
+  
+  <Step title="Pull Latest Changes">
+    ```bash
+    cd tinyclaw
+    git pull origin main
+    ```
+  </Step>
+  
+  <Step title="Reinstall Dependencies">
+    ```bash
+    bun install
+    ```
+  </Step>
+  
+  <Step title="Rebuild Packages">
+    ```bash
+    bun run build
+    ```
+  </Step>
+  
+  <Step title="Restart Tiny Claw">
+    ```bash
+    bun start
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  Your configuration, memory, and secrets are preserved during upgrades. The data directory (`~/.tinyclaw`) remains untouched.
+</Note>
+
+## Uninstallation
+
+To completely remove Tiny Claw:
+
+```bash
+# Stop the service
+pkill -f tinyclaw
+
+# Remove data directory (WARNING: deletes all data)
+rm -rf ~/.tinyclaw
+
+# Remove source code
+cd ..
+rm -rf tinyclaw
+
+# Optional: Remove Bun (if not used for other projects)
+rm -rf ~/.bun
+```
+
+<Warning>
+  This permanently deletes all your conversations, memory, configuration, and secrets. Create a backup first if you want to preserve your data.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get started with your first interaction
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Advanced configuration and customization options
+  </Card>
+  
+  <Card title="Plugin Development" icon="puzzle-piece" href="/plugins/overview">
+    Build custom channels, providers, and tools
+  </Card>
+  
+  <Card title="CLI Commands" icon="terminal" href="/guides/cli-commands">
+    Learn about all available CLI commands including backup
+  </Card>
+</CardGroup>

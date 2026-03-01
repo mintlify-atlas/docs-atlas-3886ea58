@@ -1,0 +1,444 @@
+---
+title: '@tinyclaw/compactor'
+description: 'Enhanced conversation compaction with layered compression pipeline'
+---
+
+# @tinyclaw/compactor
+
+Enhanced conversation compaction system. Automatically compresses long conversation histories using a 4-layer pipeline: rule-based pre-compression, message deduplication, LLM summarization, and tiered summaries.
+
+## Installation
+
+```bash
+npm install @tinyclaw/compactor
+```
+
+## Core Concepts
+
+**Compaction** reduces conversation history size while preserving important context:
+
+### 4-Layer Pipeline
+
+1. **Layer 1: Rule-based pre-compression** (9 rules)
+   - Deduplicate lines
+   - Remove emoji
+   - Collapse whitespace
+   - Normalize CJK punctuation
+   - Remove empty sections
+   - Compress markdown tables
+   - Merge similar bullets
+   - Merge short bullets
+   - Remove decorative lines
+
+2. **Layer 2: Message deduplication**
+   - Shingle hashing + Jaccard similarity
+   - Removes duplicate/highly similar messages
+
+3. **Layer 3: LLM summarization**
+   - Single LLM call to generate L2 (detailed) summary
+   - Preserves key facts, decisions, and outcomes
+
+4. **Layer 4: Tiered summaries**
+   - L0: Ultra-brief (1-2 sentences)
+   - L1: Brief (1 paragraph)
+   - L2: Detailed (multiple paragraphs)
+
+### Standalone Utilities
+
+- **Dictionary encoding**: Auto-learned codebook, $XX substitution (lossless)
+- **Tokenizer optimizer**: Encoding-aware format fixes (1-3% savings)
+- **Compressed Context Protocol (CCP)**: Ultra/medium/light abbreviation (20-60%)
+
+## Main Exports
+
+### Compactor Engine
+
+#### `createCompactor(db: Database, config?: CompactorConfig): CompactorEngine`
+
+Create a compactor engine.
+
+<ParamField path="db" type="Database" required>
+  Database instance from `@tinyclaw/core`
+</ParamField>
+
+<ParamField path="config" type="CompactorConfig">
+  Optional configuration
+</ParamField>
+
+```typescript
+import { createCompactor } from '@tinyclaw/compactor';
+import { createDatabase } from '@tinyclaw/core';
+
+const db = createDatabase('/path/to/tiny-claw.db');
+const compactor = createCompactor(db, {
+  threshold: 50,           // Compact when message count > 50
+  targetCount: 20,         // Keep last 20 messages after compaction
+  estimatedTokenLimit: 4000, // Token budget for compaction
+});
+```
+
+**Default Config:**
+```typescript
+const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
+  threshold: 50,
+  targetCount: 20,
+  estimatedTokenLimit: 4000,
+};
+```
+
+### Methods
+
+#### `compactIfNeeded(userId, provider): Promise<CompactionResult | null>`
+
+Automatically compact conversation history if it exceeds threshold.
+
+<ParamField path="userId" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="provider" type="Provider" required>
+  LLM provider for summarization
+</ParamField>
+
+<ResponseField name="result" type="CompactionResult | null">
+  Compaction result or null if compaction was not needed
+</ResponseField>
+
+```typescript
+const result = await compactor.compactIfNeeded('web:owner', provider);
+
+if (result) {
+  console.log(`Compacted ${result.messagesRemoved} messages`);
+  console.log(`Summary: ${result.summary.l1}`);
+}
+```
+
+**CompactionResult:**
+```typescript
+interface CompactionResult {
+  summary: TieredSummary;     // L0, L1, L2 summaries
+  messagesRemoved: number;    // Messages deleted
+  originalCount: number;      // Messages before compaction
+  newCount: number;           // Messages after compaction
+  metrics: CompactionMetrics; // Compression stats
+}
+```
+
+**TieredSummary:**
+```typescript
+interface TieredSummary {
+  l0: string;  // Ultra-brief (1-2 sentences)
+  l1: string;  // Brief (1 paragraph)
+  l2: string;  // Detailed (multiple paragraphs)
+}
+```
+
+#### `getLatestSummary(userId): string | null`
+
+Retrieve the latest compaction summary.
+
+```typescript
+const summary = compactor.getLatestSummary('web:owner');
+if (summary) {
+  console.log(summary);
+}
+```
+
+#### `estimateTokens(text): number`
+
+Estimate token count for a text string.
+
+```typescript
+const tokens = compactor.estimateTokens('Hello, world!');
+console.log(`Estimated tokens: ${tokens}`);
+```
+
+## Standalone Utilities
+
+### Compressed Context Protocol (CCP)
+
+Ultra-aggressive abbreviation for context compression.
+
+#### `compressContext(text, level?): string`
+
+<ParamField path="text" type="string" required>
+  Text to compress
+</ParamField>
+
+<ParamField path="level" type="CcpLevel">
+  Compression level: `'ultra'`, `'medium'`, or `'light'` (default: `'medium'`)
+</ParamField>
+
+<ResponseField name="compressed" type="string">
+  Compressed text
+</ResponseField>
+
+```typescript
+import { compressContext } from '@tinyclaw/compactor';
+
+const original = 'The user asked about timezone configuration and we updated FRIEND.md with UTC+08:00.';
+const compressed = compressContext(original, 'ultra');
+
+console.log(compressed);
+// Output: "usr askd tz cfg, upd FRIEND.md w/ UTC+08"
+```
+
+**Compression Levels:**
+- **ultra**: 40-60% reduction (aggressive abbreviation)
+- **medium**: 20-40% reduction (balanced)
+- **light**: 10-20% reduction (conservative)
+
+#### `compressContextWithStats(text, level?): CcpResultWithStats`
+
+Compress and return statistics.
+
+```typescript
+import { compressContextWithStats } from '@tinyclaw/compactor';
+
+const result = compressContextWithStats(original, 'ultra');
+
+console.log(result.compressed);
+console.log(`Saved: ${result.stats.compressionRatio.toFixed(2)}%`);
+```
+
+### Dictionary Encoding
+
+Lossless compression using auto-learned codebook.
+
+#### `buildCodebook(text, options?): Codebook`
+
+Build a codebook from sample text.
+
+```typescript
+import { buildCodebook } from '@tinyclaw/compactor';
+
+const codebook = buildCodebook(conversationHistory, {
+  minFrequency: 3,
+  maxEntries: 100,
+});
+
+console.log(codebook);
+// { 'timezone': '$01', 'configuration': '$02', ... }
+```
+
+#### `compressText(text, codebook): string`
+
+Compress text using a codebook.
+
+```typescript
+import { compressText } from '@tinyclaw/compactor';
+
+const compressed = compressText(
+  'The timezone configuration is in FRIEND.md',
+  codebook
+);
+
+console.log(compressed);
+// "The $01 $02 is in FRIEND.md"
+```
+
+#### `decompressText(compressed, codebook): string`
+
+Decompress text.
+
+```typescript
+import { decompressText } from '@tinyclaw/compactor';
+
+const decompressed = decompressText(compressed, codebook);
+console.log(decompressed);
+// "The timezone configuration is in FRIEND.md"
+```
+
+#### `compressionStats(original, compressed): { ratio, saved }`
+
+Calculate compression statistics.
+
+```typescript
+import { compressionStats } from '@tinyclaw/compactor';
+
+const stats = compressionStats(original, compressed);
+console.log(`Compression ratio: ${stats.ratio.toFixed(2)}%`);
+console.log(`Bytes saved: ${stats.saved}`);
+```
+
+### Tokenizer Optimizer
+
+Encoding-aware format fixes for better tokenization.
+
+#### `optimizeTokens(text, options?): string`
+
+Optimize text for tokenization.
+
+```typescript
+import { optimizeTokens } from '@tinyclaw/compactor';
+
+const optimized = optimizeTokens(text, {
+  stripBold: true,
+  stripItalic: true,
+  compactBullets: true,
+  minimizeWhitespace: true,
+});
+```
+
+**Individual Optimizers:**
+- `stripBoldItalic(text)` - Remove bold/italic markdown
+- `stripTrivialBackticks(text)` - Remove unnecessary code fences
+- `compactBullets(text)` - Shorten bullet points
+- `minimizeWhitespace(text)` - Collapse whitespace
+- `compressTableToKv(text)` - Convert markdown tables to key-value
+
+### Rule-based Pre-compression
+
+```typescript
+import {
+  preCompress,
+  deduplicateLines,
+  stripEmoji,
+  collapseWhitespace,
+  normalizeCjkPunctuation,
+  removeEmptySections,
+  compressMarkdownTable,
+  mergeSimilarBullets,
+  mergeShortBullets,
+  removeDecorativeLines,
+} from '@tinyclaw/compactor';
+
+// Apply all 9 rules at once
+const compressed = preCompress(text);
+
+// Or apply rules individually
+const step1 = deduplicateLines(text);
+const step2 = stripEmoji(step1);
+const step3 = collapseWhitespace(step2);
+```
+
+### Message Deduplication
+
+```typescript
+import { deduplicateMessages, computeShingles, jaccardSimilarity } from '@tinyclaw/compactor';
+
+const messages = [
+  { role: 'user', content: 'Hello there!' },
+  { role: 'user', content: 'Hello there!' },  // Duplicate
+  { role: 'assistant', content: 'Hi!' },
+];
+
+const deduplicated = deduplicateMessages(messages, 0.8);
+console.log(deduplicated.length); // 2
+```
+
+### Tiered Summaries
+
+```typescript
+import { generateTiers } from '@tinyclaw/compactor';
+
+const l2Summary = 'The user asked about timezone configuration...';
+const tiers = generateTiers(l2Summary);
+
+console.log(`L0: ${tiers.l0}`);
+console.log(`L1: ${tiers.l1}`);
+console.log(`L2: ${tiers.l2}`);
+```
+
+### Token Utilities
+
+```typescript
+import { estimateTokens, truncateToTokenBudget } from '@tinyclaw/compactor';
+
+const tokens = estimateTokens('Hello, world!');
+console.log(`Estimated tokens: ${tokens}`);
+
+const truncated = truncateToTokenBudget(text, 100);
+console.log(`Truncated to 100 tokens: ${truncated}`);
+```
+
+## Example Usage
+
+### Automatic Compaction
+
+```typescript
+import { createDatabase } from '@tinyclaw/core';
+import { createCompactor } from '@tinyclaw/compactor';
+
+const db = createDatabase('/path/to/tiny-claw.db');
+const compactor = createCompactor(db);
+
+// In agent loop (before processing message)
+const result = await compactor.compactIfNeeded('web:owner', provider);
+
+if (result) {
+  console.log(`Compacted ${result.messagesRemoved} messages`);
+  console.log(`Saved ~${result.metrics.compressionRatio.toFixed(2)}% tokens`);
+}
+```
+
+### Manual Compaction
+
+```typescript
+import { createCompactor } from '@tinyclaw/compactor';
+
+const compactor = createCompactor(db, {
+  threshold: 100,
+  targetCount: 30,
+});
+
+// Force compaction
+const result = await compactor.compactIfNeeded('web:owner', provider);
+```
+
+### CCP for Ultra Compression
+
+```typescript
+import { compressContext } from '@tinyclaw/compactor';
+
+const longContext = `
+The user asked about timezone configuration. We discussed UTC+08:00 for Philippines.
+Updated FRIEND.md with location and timezone information.
+User confirmed the changes and thanked me.
+`;
+
+const compressed = compressContext(longContext, 'ultra');
+console.log(compressed);
+// "usr askd tz cfg. disc UTC+08 PH. upd FRIEND.md w/ loc&tz. usr conf&thx"
+```
+
+### Dictionary Encoding Workflow
+
+```typescript
+import { buildCodebook, compressText, decompressText } from '@tinyclaw/compactor';
+
+// Build codebook from conversation history
+const history = db.getHistory('web:owner', 100);
+const historyText = history.map(m => m.content).join('\n');
+const codebook = buildCodebook(historyText);
+
+// Compress new message
+const message = 'The timezone configuration is stored in FRIEND.md';
+const compressed = compressText(message, codebook);
+
+// Decompress when needed
+const decompressed = decompressText(compressed, codebook);
+```
+
+## Performance
+
+- **Layer 1 (rules)**: ~5ms for 10KB text
+- **Layer 2 (dedup)**: ~10ms for 100 messages
+- **Layer 3 (LLM)**: ~2-5s (depends on provider)
+- **Layer 4 (tiers)**: ~1ms (heuristic-based)
+- **CCP**: ~2ms for 10KB text
+- **Dictionary**: ~5ms encode/decode for 10KB text
+
+**Compression Ratios:**
+- **Layer 1**: 10-20% reduction
+- **Layer 2**: 5-15% reduction
+- **Layer 3**: 60-80% reduction
+- **Layer 4**: 0% (no additional compression, just formatting)
+- **CCP ultra**: 40-60% reduction
+- **Dictionary**: 10-30% reduction (depends on repetition)
+
+## Related Packages
+
+- [@tinyclaw/core](/api/core) - Core agent runtime and database
+- [@tinyclaw/types](/api/types) - Type definitions
+- [@tinyclaw/memory](/api/memory) - Adaptive memory (alternative to compaction)

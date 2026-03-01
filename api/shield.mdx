@@ -1,0 +1,509 @@
+---
+title: '@tinyclaw/shield'
+description: 'Runtime SHIELD.md enforcement for AI agent security'
+---
+
+# @tinyclaw/shield
+
+Runtime security enforcement engine. Parses SHIELD.md threat feeds and provides deterministic decision-making for tool calls, network egress, secrets access, and more.
+
+## Installation
+
+```bash
+npm install @tinyclaw/shield
+```
+
+## Core Concepts
+
+**Shield** enforces security policies defined in SHIELD.md:
+
+- Parse threat entries from SHIELD.md (industry standard format)
+- Evaluate events against active threats
+- Return deterministic decisions: `block`, `require_approval`, or `log`
+- Support expiration and revocation
+- Fingerprint-based matching (content hashing)
+
+### SHIELD.md Format
+
+Shield uses the [SHIELD.md v0.1 spec](https://shield.md) - a standardized threat feed format for AI agents.
+
+**Example SHIELD.md entry:**
+```markdown
+## Threat: exec_dangerous_commands
+
+- **Fingerprint:** `sha256:abc123...`
+- **Category:** tool
+- **Severity:** critical
+- **Confidence:** 95%
+- **Action:** block
+- **Scope:** tool.call
+- **Title:** Dangerous system command execution
+- **Description:** Tool attempts to execute commands like `rm -rf`, `dd`, `mkfs`
+- **Recommendation (Agent):** Refuse and explain security risk
+```
+
+## Main Exports
+
+### Shield Engine
+
+#### `createShieldEngine(shieldContent: string): ShieldEngine`
+
+Create a shield engine from SHIELD.md content.
+
+<ParamField path="shieldContent" type="string" required>
+  SHIELD.md file content
+</ParamField>
+
+<ResponseField name="engine" type="ShieldEngine">
+  Shield engine with `evaluate()`, `isActive()`, and `getThreats()` methods
+</ResponseField>
+
+```typescript
+import { createShieldEngine } from '@tinyclaw/shield';
+import { readFileSync } from 'fs';
+
+const shieldMd = readFileSync('/path/to/SHIELD.md', 'utf-8');
+const shield = createShieldEngine(shieldMd);
+```
+
+### Methods
+
+#### `evaluate(event: ShieldEvent): ShieldDecision`
+
+Evaluate an event against active threats.
+
+<ParamField path="event" type="ShieldEvent" required>
+  Event to evaluate (scope, toolName, toolArgs, etc.)
+</ParamField>
+
+<ResponseField name="decision" type="ShieldDecision">
+  Decision with action, scope, threat ID, and reason
+</ResponseField>
+
+```typescript
+const decision = shield.evaluate({
+  scope: 'tool.call',
+  toolName: 'run_shell',
+  toolArgs: { command: 'rm -rf /' },
+  userId: 'web:owner',
+});
+
+if (decision.action === 'block') {
+  console.error(`Blocked: ${decision.reason}`);
+  // Do not execute tool
+} else if (decision.action === 'require_approval') {
+  console.warn(`Requires approval: ${decision.reason}`);
+  // Ask user for confirmation
+} else {
+  console.log(`Logged: ${decision.reason}`);
+  // Execute tool normally
+}
+```
+
+**ShieldEvent:**
+```typescript
+interface ShieldEvent {
+  scope: ShieldScope;
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+  domain?: string;
+  secretPath?: string;
+  skillName?: string;
+  inputText?: string;
+  userId?: string;
+}
+```
+
+**ShieldScope:**
+```typescript
+type ShieldScope =
+  | 'prompt'           // User input prompt
+  | 'skill.install'    // Skill/plugin installation
+  | 'skill.execute'    // Skill/plugin execution
+  | 'tool.call'        // Tool invocation
+  | 'network.egress'   // Outbound network request
+  | 'secrets.read'     // Secrets access
+  | 'mcp';             // MCP server interaction
+```
+
+**ShieldDecision:**
+```typescript
+interface ShieldDecision {
+  action: ShieldAction;       // 'block' | 'require_approval' | 'log'
+  scope: ShieldScope;
+  threatId: string | null;    // Matched threat ID
+  fingerprint: string | null; // Matched fingerprint
+  matchedOn: string | null;   // What triggered the match
+  matchValue: string | null;  // The matched value
+  reason: string;             // Human-readable explanation
+}
+```
+
+#### `isActive(): boolean`
+
+Check if the shield has active threats loaded.
+
+```typescript
+if (shield.isActive()) {
+  console.log('Shield is active with threat feed loaded');
+} else {
+  console.log('Shield is inactive (no threats)');
+}
+```
+
+#### `getThreats(): ThreatEntry[]`
+
+Get all loaded threat entries (for debugging/audit).
+
+```typescript
+const threats = shield.getThreats();
+
+for (const threat of threats) {
+  console.log(`${threat.id}: ${threat.title} (${threat.severity})`);
+}
+```
+
+**ThreatEntry:**
+```typescript
+interface ThreatEntry {
+  id: string;
+  fingerprint: string;
+  category: ThreatCategory;
+  severity: ThreatSeverity;
+  confidence: number;        // 0-100
+  action: ShieldAction;
+  title: string;
+  description: string;
+  recommendationAgent: string;
+  expiresAt: string | null;
+  revoked: boolean;
+  revokedAt: string | null;
+}
+```
+
+**ThreatSeverity:**
+```typescript
+type ThreatSeverity = 'critical' | 'high' | 'medium' | 'low';
+```
+
+**ThreatCategory:**
+```typescript
+type ThreatCategory =
+  | 'prompt'
+  | 'tool'
+  | 'mcp'
+  | 'memory'
+  | 'supply_chain'
+  | 'vulnerability'
+  | 'fraud'
+  | 'policy_bypass'
+  | 'anomaly'
+  | 'skill'
+  | 'other';
+```
+
+## Parser
+
+### `parseShieldContent(content: string): ThreatEntry[]`
+
+Parse SHIELD.md content into threat entries.
+
+```typescript
+import { parseShieldContent } from '@tinyclaw/shield';
+
+const threats = parseShieldContent(shieldMd);
+console.log(`Parsed ${threats.length} threats`);
+```
+
+### `parseThreatBlock(block: string): ThreatEntry | null`
+
+Parse a single threat block.
+
+```typescript
+import { parseThreatBlock } from '@tinyclaw/shield';
+
+const block = `
+## Threat: exec_dangerous_commands
+
+- **Fingerprint:** sha256:abc123
+- **Category:** tool
+- **Severity:** critical
+- **Confidence:** 95%
+- **Action:** block
+- **Scope:** tool.call
+`;
+
+const threat = parseThreatBlock(block);
+if (threat) {
+  console.log(threat.title);
+}
+```
+
+### `parseAllThreats(content: string): ThreatEntry[]`
+
+Alias for `parseShieldContent`.
+
+## Matcher
+
+### `parseDirectives(description: string): Directive[]`
+
+Parse threat directives from description text.
+
+```typescript
+import { parseDirectives } from '@tinyclaw/shield';
+
+const description = `
+Block if:
+- tool_name matches "run_shell|execute_code"
+- args.command contains "rm -rf"
+`;
+
+const directives = parseDirectives(description);
+```
+
+**Directive:**
+```typescript
+interface Directive {
+  field: string;           // e.g., 'tool_name', 'args.command'
+  operator: string;        // 'matches' | 'contains' | 'equals'
+  value: string;           // Pattern or value
+}
+```
+
+### `matchEvent(event: ShieldEvent, threat: ThreatEntry): MatchResult`
+
+Match an event against a threat.
+
+```typescript
+import { matchEvent } from '@tinyclaw/shield';
+
+const event = {
+  scope: 'tool.call',
+  toolName: 'run_shell',
+  toolArgs: { command: 'rm -rf /' },
+};
+
+const result = matchEvent(event, threat);
+
+if (result.matched) {
+  console.log(`Matched on: ${result.matchedOn}`);
+  console.log(`Match value: ${result.matchValue}`);
+}
+```
+
+**MatchResult:**
+```typescript
+interface MatchResult {
+  matched: boolean;
+  matchedOn: string | null;
+  matchValue: string | null;
+}
+```
+
+## Example Usage
+
+### Basic Shield Setup
+
+```typescript
+import { createShieldEngine } from '@tinyclaw/shield';
+import { readFileSync } from 'fs';
+
+const shieldMd = readFileSync('/path/to/SHIELD.md', 'utf-8');
+const shield = createShieldEngine(shieldMd);
+
+// Check if shield is active
+if (shield.isActive()) {
+  console.log(`Loaded ${shield.getThreats().length} threats`);
+}
+```
+
+### Tool Call Protection
+
+```typescript
+import { createShieldEngine } from '@tinyclaw/shield';
+
+const shield = createShieldEngine(shieldMd);
+
+// Before executing a tool
+const decision = shield.evaluate({
+  scope: 'tool.call',
+  toolName: 'run_shell',
+  toolArgs: { command: 'ls -la' },
+  userId: 'web:owner',
+});
+
+if (decision.action === 'block') {
+  throw new Error(`Tool execution blocked: ${decision.reason}`);
+} else if (decision.action === 'require_approval') {
+  // Ask user for approval
+  const approved = await askUserForApproval(decision.reason);
+  if (!approved) {
+    throw new Error('User denied approval');
+  }
+}
+
+// Execute tool
+await tool.execute(toolArgs);
+```
+
+### Network Egress Check
+
+```typescript
+import { createShieldEngine } from '@tinyclaw/shield';
+
+const shield = createShieldEngine(shieldMd);
+
+// Before making an HTTP request
+const url = new URL('https://api.example.com/data');
+const decision = shield.evaluate({
+  scope: 'network.egress',
+  domain: url.hostname,
+  userId: 'web:owner',
+});
+
+if (decision.action === 'block') {
+  console.error(`Network request blocked: ${decision.reason}`);
+  return;
+}
+
+// Make request
+await fetch(url);
+```
+
+### Secrets Access Check
+
+```typescript
+import { createShieldEngine } from '@tinyclaw/shield';
+
+const shield = createShieldEngine(shieldMd);
+
+// Before reading a secret
+const decision = shield.evaluate({
+  scope: 'secrets.read',
+  secretPath: 'provider.openai.apiKey',
+  userId: 'friend:discord:123',
+});
+
+if (decision.action === 'block') {
+  throw new Error(`Secrets access denied: ${decision.reason}`);
+}
+
+// Retrieve secret
+const apiKey = await secrets.retrieve('provider.openai.apiKey');
+```
+
+### Integration with Agent Loop
+
+```typescript
+import { agentLoop } from '@tinyclaw/core';
+import { createShieldEngine } from '@tinyclaw/shield';
+import { loadShieldContent } from '@tinyclaw/heartware';
+
+// Load SHIELD.md from heartware
+const shieldMd = await loadShieldContent('/path/to/heartware');
+const shield = shieldMd ? createShieldEngine(shieldMd) : undefined;
+
+// Add to agent context
+const agentContext = {
+  db,
+  provider,
+  learning,
+  tools,
+  shield, // Shield is automatically used in agent loop
+};
+
+// Agent loop will automatically:
+// 1. Evaluate tool calls before execution
+// 2. Block/require approval based on shield decisions
+// 3. Handle conversational approval flow
+await agentLoop('Run this command: rm -rf /', 'web:owner', agentContext);
+```
+
+### Custom Threat Feed
+
+```typescript
+import { createShieldEngine } from '@tinyclaw/shield';
+
+const customShield = `
+# SHIELD.md
+
+## Threat: block_cryptocurrency_mining
+
+- **Fingerprint:** sha256:crypto-mining-001
+- **Category:** tool
+- **Severity:** high
+- **Confidence:** 90%
+- **Action:** block
+- **Scope:** tool.call
+- **Title:** Block cryptocurrency mining
+- **Description:** Prevent execution of crypto mining tools
+- **Recommendation (Agent):** Refuse mining operations
+
+**Directives:**
+- Block if tool_name matches "execute_code|run_shell"
+- Block if args.command contains "xmrig|ethminer|cgminer"
+`;
+
+const shield = createShieldEngine(customShield);
+
+const decision = shield.evaluate({
+  scope: 'tool.call',
+  toolName: 'run_shell',
+  toolArgs: { command: 'xmrig --donate-level 1' },
+});
+
+console.log(decision.action); // 'block'
+```
+
+## Shield Actions
+
+### `block`
+
+**Halt immediately** - Do not execute the action.
+
+**Use for:**
+- Critical security threats
+- Malicious commands
+- Known exploits
+
+### `require_approval`
+
+**Ask user for confirmation** before proceeding.
+
+**Use for:**
+- Potentially dangerous actions
+- File system modifications
+- Network requests to new domains
+- Secrets access by non-owner
+
+### `log`
+
+**Allow but log** the event for audit.
+
+**Use for:**
+- Low-severity anomalies
+- Monitoring behavior
+- Compliance logging
+
+## Best Practices
+
+1. **Keep SHIELD.md updated** - Subscribe to threat feeds
+2. **Use fingerprints** - Content-based matching is more reliable
+3. **Set expiration dates** - Temporary threats expire automatically
+4. **Revoke outdated threats** - Mark as revoked instead of deleting
+5. **Test your shield** - Verify threats match expected events
+6. **Audit logs** - Review shield decisions periodically
+7. **Combine with owner authority** - Shield + owner checks = defense in depth
+
+## Performance
+
+- **Parsing**: ~5ms for 50 threats
+- **Evaluation**: ~1-2ms per event
+- **Matching**: ~0.1ms per directive
+- **Memory**: ~10KB per threat entry
+
+## Related Packages
+
+- [@tinyclaw/core](/api/core) - Core agent runtime with shield integration
+- [@tinyclaw/types](/api/types) - Type definitions
+- [@tinyclaw/heartware](/api/heartware) - SHIELD.md storage and loading

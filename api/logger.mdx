@@ -1,0 +1,364 @@
+---
+title: '@tinyclaw/logger'
+description: 'Context-aware structured logging for Tiny Claw'
+---
+
+## Overview
+
+The `@tinyclaw/logger` package provides context-aware structured logging for Tiny Claw, powered by `@wgtechlabs/log-engine`. It features emoji-based log levels, local timestamps, and runtime log mode switching.
+
+### Features
+
+- **Context-aware emoji** — Automatic emoji selection based on keywords
+- **Local timestamps** — Human-readable local time (no ISO timestamps)
+- **Runtime log mode switching** — Change verbosity on the fly
+- **Zero configuration** — Sensible defaults out of the box
+- **Custom emoji mappings** — Tiny Claw-specific context emojis
+
+## Installation
+
+```bash
+bun add @tinyclaw/logger
+```
+
+## Usage
+
+### Basic Logging
+
+```typescript
+import { logger } from '@tinyclaw/logger';
+
+logger.info('Server started', { port: 3000 });
+logger.debug('Processing request', { requestId: '123' });
+logger.warn('High memory usage', { percent: 85 });
+logger.error('Database connection failed', { error: err });
+```
+
+### Log Output Format
+
+```
+12:34:56 🤖 [INFO] Agent operations { agent: "heartware", status: "active" }
+12:35:01 🔑 [DEBUG] Secrets operations { key: "provider.openai.apiKey" }
+12:35:05 ⚠️  [WARN] High memory usage { percent: 85 }
+12:35:10 ❌ [ERROR] Database connection failed { error: "Connection timeout" }
+```
+
+### Change Log Mode at Runtime
+
+```typescript
+import { setLogMode } from '@tinyclaw/logger';
+
+// Set to debug (most verbose)
+setLogMode('debug');
+
+// Set to info (normal operation)
+setLogMode('info');
+
+// Set to warn (only warnings and errors)
+setLogMode('warn');
+
+// Set to error (only errors)
+setLogMode('error');
+
+// Disable all logs
+setLogMode('silent');
+```
+
+### Context-Aware Emojis
+
+The logger automatically selects emojis based on message keywords:
+
+```typescript
+// 🤖 - Agent operations
+logger.info('Agent created', { agentId: '123' });
+
+// 🔑 - Secrets operations
+logger.debug('Secret stored', { key: 'provider.openai.apiKey' });
+
+// 🧠 - Learning operations
+logger.info('Pattern detected', { confidence: 0.95 });
+
+// 🔀 - Router operations
+logger.debug('Route selected', { command: 'chat' });
+```
+
+### Structured Data
+
+```typescript
+logger.info('User action', {
+  userId: 'user123',
+  action: 'chat',
+  duration: 1234,
+  metadata: { channel: 'discord', server: 'tinyclaw' },
+});
+```
+
+## API Reference
+
+### `logger`
+
+Singleton logger instance (re-exported `LogEngine`).
+
+#### `logger.debug(message, data?)`
+
+Log a debug message (only shown in debug mode).
+
+<ParamField path="message" type="string" required>
+  Log message text.
+</ParamField>
+
+<ParamField path="data" type="Record<string, unknown>">
+  Optional structured data to include.
+</ParamField>
+
+---
+
+#### `logger.info(message, data?)`
+
+Log an informational message.
+
+<ParamField path="message" type="string" required>
+  Log message text.
+</ParamField>
+
+<ParamField path="data" type="Record<string, unknown>">
+  Optional structured data to include.
+</ParamField>
+
+---
+
+#### `logger.warn(message, data?)`
+
+Log a warning message.
+
+<ParamField path="message" type="string" required>
+  Log message text.
+</ParamField>
+
+<ParamField path="data" type="Record<string, unknown>">
+  Optional structured data to include.
+</ParamField>
+
+---
+
+#### `logger.error(message, data?)`
+
+Log an error message.
+
+<ParamField path="message" type="string" required>
+  Log message text.
+</ParamField>
+
+<ParamField path="data" type="Record<string, unknown>">
+  Optional structured data to include.
+</ParamField>
+
+---
+
+### `setLogMode(level)`
+
+Change the active log level at runtime.
+
+<ParamField path="level" type="LogModeName | LogMode" required>
+  Log level to set. Can be a human-readable name or numeric mode.
+</ParamField>
+
+**Log mode names:**
+- `'debug'` — Show all logs (most verbose)
+- `'info'` — Show info, warn, and error
+- `'warn'` — Show warn and error only
+- `'error'` — Show error only
+- `'silent'` — Suppress all logs
+- `'off'` — Same as silent
+
+---
+
+### `LogMode` (enum)
+
+Numeric log mode values.
+
+```typescript
+enum LogMode {
+  DEBUG = 0,
+  INFO = 1,
+  WARN = 2,
+  ERROR = 3,
+  SILENT = 4,
+  OFF = 5,
+}
+```
+
+---
+
+### `LOG_MODES` (constant)
+
+Mapping of human-readable names to `LogMode` values.
+
+```typescript
+const LOG_MODES = {
+  debug: LogMode.DEBUG,
+  info: LogMode.INFO,
+  warn: LogMode.WARN,
+  error: LogMode.ERROR,
+  silent: LogMode.SILENT,
+  off: LogMode.OFF,
+} as const;
+```
+
+## Custom Emoji Mappings
+
+Tiny Claw includes custom emoji mappings for common operations:
+
+| Emoji | Keywords | Description |
+|-------|----------|-------------|
+| 🤖 | agent, heartware, plugin, orchestrator | Agent operations |
+| 🔑 | secret, vault, encrypt, decrypt, credential | Secrets operations |
+| 🧠 | learn, pattern, detect, adapt, training | Learning operations |
+| 🔀 | route, router, dispatch, forward, command | Router operations |
+
+These are in addition to the default `@wgtechlabs/log-engine` mappings:
+
+| Emoji | Keywords | Description |
+|-------|----------|-------------|
+| 🚀 | start, launch, init, boot | Startup operations |
+| ⚡ | fast, quick, speed, performance | Performance events |
+| 🔒 | secure, auth, permission, access | Security events |
+| 💾 | save, store, persist, write | Storage operations |
+| 📡 | network, http, request, api | Network operations |
+| ⚠️  | warning, caution, alert | Warnings |
+| ❌ | error, fail, exception | Errors |
+
+## Examples
+
+### Development Mode
+
+```typescript
+import { logger, setLogMode } from '@tinyclaw/logger';
+
+// Enable debug logging for development
+setLogMode('debug');
+
+logger.debug('Starting agent initialization');
+logger.debug('Loading plugins', { count: 3 });
+logger.info('Agent ready', { agentId: 'heartware-1' });
+```
+
+### Production Mode
+
+```typescript
+import { logger, setLogMode } from '@tinyclaw/logger';
+
+// Only show warnings and errors in production
+setLogMode('warn');
+
+logger.debug('Debug message');  // Not shown
+logger.info('Info message');    // Not shown
+logger.warn('Warning message'); // Shown
+logger.error('Error message');  // Shown
+```
+
+### Error Logging
+
+```typescript
+try {
+  await dangerousOperation();
+} catch (error) {
+  logger.error('Operation failed', {
+    operation: 'dangerousOperation',
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
+}
+```
+
+### Timing Operations
+
+```typescript
+const start = Date.now();
+
+try {
+  await someOperation();
+  const duration = Date.now() - start;
+  logger.info('Operation completed', { duration });
+} catch (error) {
+  const duration = Date.now() - start;
+  logger.error('Operation failed', { duration, error });
+}
+```
+
+### Conditional Debug Logging
+
+```typescript
+function processLargeDataset(data: unknown[]) {
+  logger.debug('Processing dataset', { size: data.length });
+  
+  for (let i = 0; i < data.length; i++) {
+    // Only log every 1000 items to avoid spam
+    if (i % 1000 === 0) {
+      logger.debug('Processing progress', { processed: i, total: data.length });
+    }
+    
+    // Process item...
+  }
+  
+  logger.info('Dataset processed', { size: data.length });
+}
+```
+
+## Best Practices
+
+1. **Use appropriate log levels:**
+   - `debug` — Detailed diagnostic information
+   - `info` — General informational messages
+   - `warn` — Something unexpected but not critical
+   - `error` — Critical failures that need attention
+
+2. **Include context in structured data:**
+   ```typescript
+   // Good: includes context
+   logger.info('Message sent', { userId, channelId, messageLength });
+   
+   // Avoid: missing context
+   logger.info('Message sent');
+   ```
+
+3. **Don't log sensitive data:**
+   ```typescript
+   // Good: redacted
+   logger.debug('API key loaded', { keyPrefix: apiKey.slice(0, 7) + '...' });
+   
+   // Bad: exposes secret
+   logger.debug('API key loaded', { apiKey });
+   ```
+
+4. **Use debug for development, info for production:**
+   ```typescript
+   // Development
+   logger.debug('Cache miss', { key, ttl });
+   
+   // Production
+   logger.info('High cache miss rate', { rate: 0.8 });
+   ```
+
+5. **Log errors with full context:**
+   ```typescript
+   catch (error) {
+     logger.error('Database query failed', {
+       query: query.slice(0, 100),
+       error: error.message,
+       stack: error.stack,
+       duration,
+     });
+   }
+   ```
+
+## Environment-Based Configuration
+
+Set log mode based on environment:
+
+```typescript
+import { setLogMode } from '@tinyclaw/logger';
+
+const logMode = process.env.LOG_MODE || (process.env.NODE_ENV === 'production' ? 'warn' : 'debug');
+setLogMode(logMode as LogModeName);
+```

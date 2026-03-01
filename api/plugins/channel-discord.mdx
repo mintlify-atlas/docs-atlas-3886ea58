@@ -1,0 +1,313 @@
+---
+title: Discord Channel Plugin
+description: Connect Tiny Claw to a Discord bot for DM and @mention conversations
+---
+
+The Discord Channel Plugin connects your Tiny Claw agent to a Discord bot, enabling users to interact with the agent through Direct Messages and @mentions in guild channels.
+
+## Plugin Metadata
+
+<ParamField path="id" type="string" default="@tinyclaw/plugin-channel-discord">
+  The unique plugin identifier
+</ParamField>
+
+<ParamField path="name" type="string" default="Discord">
+  Human-readable plugin name
+</ParamField>
+
+<ParamField path="description" type="string">
+  Connect Tiny Claw to a Discord bot
+</ParamField>
+
+<ParamField path="type" type="string" default="channel">
+  Plugin type
+</ParamField>
+
+<ParamField path="version" type="string" default="2.0.0">
+  Current plugin version
+</ParamField>
+
+<ParamField path="channelPrefix" type="string" default="discord">
+  User ID prefix for Discord users (format: `discord:<discord-user-id>`)
+</ParamField>
+
+## Setup
+
+### 1. Create a Discord Bot
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
+2. Create a new application
+3. Add a Bot to your application
+4. Enable **Message Content Intent** under Privileged Gateway Intents
+5. Copy the bot token
+
+### 2. Pair with Tiny Claw
+
+```bash
+# Start Tiny Claw and ask the agent
+"Can you pair my Discord bot?"
+
+# Provide the bot token when prompted
+```
+
+Alternatively, use the pairing tool directly:
+
+```typescript
+await discord_pair({ token: "YOUR_BOT_TOKEN" });
+```
+
+### 3. Restart Tiny Claw
+
+The agent will automatically restart to connect the bot. Once connected, the bot will:
+- Respond to all Direct Messages
+- Respond to @mentions in guild channels
+- Ignore messages from other bots (including itself)
+
+## Configuration
+
+### Config Keys
+
+<ParamField path="channels.discord.enabled" type="boolean">
+  Enable/disable the Discord plugin. Set automatically during pairing.
+</ParamField>
+
+<ParamField path="channels.discord.tokenRef" type="string">
+  Reference to the secret key storing the bot token. Set automatically to `channel.discord`.
+</ParamField>
+
+### Secret Keys
+
+<ParamField path="channel.discord" type="string">
+  Stores the Discord bot token securely in the secrets engine.
+</ParamField>
+
+## Pairing Tools
+
+The plugin provides two tools for managing Discord integration:
+
+### `discord_pair`
+
+Pair Tiny Claw with a Discord bot by storing the bot token and enabling the plugin.
+
+<ParamField path="token" type="string" required>
+  Discord bot token from the Developer Portal
+</ParamField>
+
+**Returns:** Success message with instructions to restart the agent
+
+**Example:**
+
+```typescript
+await discord_pair({
+  token: "MTIzNDU2Nzg5MDEyMzQ1Njc4.GhIjKl.MnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYz"
+});
+// → "Discord bot paired successfully! Token stored securely and plugin enabled. Use the tinyclaw_restart tool now to connect the bot."
+```
+
+### `discord_unpair`
+
+Disconnect the Discord bot and disable the plugin. The bot token remains in secrets for safety.
+
+**Parameters:** None
+
+**Returns:** Success message with instructions to restart
+
+**Example:**
+
+```typescript
+await discord_unpair();
+// → "Discord plugin disabled. Use the tinyclaw_restart tool now to apply the changes."
+```
+
+## API Methods
+
+### `start(context: PluginRuntimeContext)`
+
+Initializes the Discord bot and connects to Discord servers.
+
+<ParamField path="context" type="PluginRuntimeContext" required>
+  Runtime context providing access to:
+  - `enqueue()` - Queue messages to the agent
+  - `agentContext` - Agent configuration
+  - `secrets` - Secrets manager for token retrieval
+  - `configManager` - Config manager for settings
+</ParamField>
+
+**Behavior:**
+- Checks if plugin is enabled via `channels.discord.enabled`
+- Retrieves bot token from secrets
+- Creates Discord client with required intents:
+  - Guilds
+  - GuildMessages
+  - MessageContent
+  - DirectMessages
+- Listens for `MessageCreate` events
+- Routes messages through `context.enqueue(userId, message)`
+
+**Message Handling:**
+- Only responds to DMs or @mentions
+- Ignores bot messages (including self)
+- Strips @mention tokens from message content
+- Handles Discord's 2000-character message limit by chunking responses
+- Shows typing indicator while processing
+
+### `sendToUser(userId: string, message: OutboundMessage)`
+
+Sends a proactive message to a Discord user.
+
+<ParamField path="userId" type="string" required>
+  Discord user ID in format `discord:<discord-user-id>`
+</ParamField>
+
+<ParamField path="message" type="OutboundMessage" required>
+  Message object containing:
+  - `content` - Text content to send
+  - `source` - Source of the message (optional)
+  - `priority` - Message priority (optional)
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+**Throws:** Error if client is not connected or user cannot be fetched
+
+**Example:**
+
+```typescript
+await sendToUser("discord:123456789", {
+  content: "Task completed! Results are ready.",
+  source: "background-agent",
+  priority: "high"
+});
+```
+
+### `stop()`
+
+Gracefully disconnects the Discord bot.
+
+**Returns:** `Promise<void>`
+
+**Behavior:**
+- Destroys the Discord client connection
+- Cleans up event listeners
+- Logs disconnection
+
+### `getPairingTools(secrets, configManager)`
+
+Returns the pairing tools (`discord_pair` and `discord_unpair`) for agent integration.
+
+<ParamField path="secrets" type="SecretsManagerInterface" required>
+  Secrets manager for storing bot token
+</ParamField>
+
+<ParamField path="configManager" type="ConfigManagerInterface" required>
+  Config manager for plugin settings
+</ParamField>
+
+**Returns:** `Tool[]` - Array of pairing tools
+
+## User ID Format
+
+Discord users are identified with a prefixed format to prevent collisions with other channels:
+
+```
+discord:<discord-user-id>
+```
+
+**Example:** `discord:123456789012345678`
+
+This ensures Discord sessions are isolated from web UI sessions and other channel types.
+
+## Usage Examples
+
+### User Conversation via DM
+
+```
+User (DM): Hello!
+Bot: Hi! I'm Tiny Claw. How can I help you today?
+
+User (DM): What's the weather like?
+Bot: I don't have access to weather data right now, but I can help with many other things!
+```
+
+### User Conversation via @Mention
+
+```
+User (in guild): @TinyClaw can you help me?
+Bot: Of course! What do you need help with?
+```
+
+### Owner Pairing Flow
+
+```typescript
+// In Tiny Claw agent conversation
+User: "Can you set up Discord?"
+Agent: "I'll help you pair Discord. Please provide your bot token."
+
+User: "Here's the token: MTIzNDU2..."
+Agent: *calls discord_pair({ token: "MTIzNDU2..." })*
+Agent: "Discord bot paired successfully! I'll restart now to connect the bot."
+Agent: *calls tinyclaw_restart()*
+
+// After restart
+Agent: "I'm back! Your Discord bot is now connected and ready."
+```
+
+### Long Message Chunking
+
+The plugin automatically handles Discord's 2000-character limit:
+
+```typescript
+// Internal behavior when response > 2000 chars
+const response = await context.enqueue(userId, message);
+
+if (response.length <= 2000) {
+  await msg.reply(response);
+} else {
+  // Split at newlines or spaces, max 1900 chars per chunk
+  const chunks = splitIntoChunks(response, 1900);
+  for (const chunk of chunks) {
+    await msg.channel.send(chunk);
+  }
+}
+```
+
+## Dependencies
+
+- `discord.js` ^14.0.0 - Discord API client library
+- `@tinyclaw/logger` - Logging utilities
+- `@tinyclaw/types` - Type definitions
+
+## Gateway Intents Required
+
+The plugin requires these Discord Gateway Intents:
+
+- **Guilds** - Access to guild information
+- **GuildMessages** - Receive guild message events
+- **MessageContent** - Access message content (Privileged Intent)
+- **DirectMessages** - Receive DM events
+
+<Warning>
+  **Message Content Intent** is a Privileged Gateway Intent and must be explicitly enabled in the Discord Developer Portal under Bot → Privileged Gateway Intents.
+</Warning>
+
+## Error Handling
+
+The plugin includes comprehensive error handling:
+
+- **Missing Token:** Logs warning if enabled but token not found
+- **API Errors:** Catches and logs Discord API errors
+- **Reply Failures:** Attempts to reply with error message, logs if that also fails
+- **Message Sending:** Throws detailed errors if user cannot be reached
+
+## Security
+
+- Bot token stored securely in secrets engine (never in config)
+- Token never exposed in logs or error messages
+- User IDs prefixed to prevent session hijacking across channels
+- Owner-only pairing tools protected by authority system
+
+## Related
+
+- [Friends Channel Plugin](/api/plugins/channel-friends)
+- [Secrets Manager](/api/core/secrets)
+- [Channel Plugins Overview](/concepts/plugins#channel-plugins)

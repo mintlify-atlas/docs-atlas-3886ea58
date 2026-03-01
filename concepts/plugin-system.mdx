@@ -1,0 +1,498 @@
+---
+title: Plugin System
+description: Extensible plugin architecture supporting channels, providers, and tools
+icon: plug
+---
+
+# Plugin System
+
+Tiny Claw's plugin system keeps the core minimal while enabling unlimited extensibility. All channels, providers, and tool packages are plugins that follow a simple, well-defined contract.
+
+## Three Plugin Types
+
+<CardGroup cols={3}>
+  <Card title="Channel Plugins" icon="message">
+    Connect external messaging platforms (Discord, Slack, Web, etc.)
+  </Card>
+  <Card title="Provider Plugins" icon="brain">
+    Add LLM providers (OpenAI, Anthropic, Ollama, etc.)
+  </Card>
+  <Card title="Tool Plugins" icon="wrench">
+    Contribute new agent capabilities (web browsing, image gen, etc.)
+  </Card>
+</CardGroup>
+
+## Plugin Metadata
+
+All plugins share common metadata:
+
+```typescript packages/types/src/index.ts
+export interface PluginMeta {
+  /** npm package name, e.g. "@tinyclaw/plugin-channel-discord" */
+  readonly id: string;
+  /** Human-readable name, e.g. "Discord" */
+  readonly name: string;
+  /** Short description shown at startup */
+  readonly description: string;
+  /** Plugin type discriminant */
+  readonly type: 'channel' | 'provider' | 'tools';
+  /** Plugin semver */
+  readonly version: string;
+}
+```
+
+## Channel Plugins
+
+Channel plugins connect external messaging platforms to the agent loop.
+
+### Interface
+
+```typescript packages/types/src/index.ts
+export interface ChannelPlugin extends PluginMeta {
+  readonly type: 'channel';
+  
+  /** Boot the channel. */
+  start(context: PluginRuntimeContext): Promise<void>;
+  
+  /** Tear down — disconnect from platform, flush any pending state. */
+  stop(): Promise<void>;
+  
+  /**
+   * Return pairing tools that the agent can invoke to configure this channel.
+   * These tools are merged into AgentContext.tools before the agent loop starts.
+   */
+  getPairingTools?(secrets: SecretsManagerInterface, configManager: ConfigManagerInterface): Tool[];
+  
+  /**
+   * Send an outbound message to a user on this channel.
+   * Optional — channels that support proactive messaging implement this.
+   */
+  sendToUser?(userId: string, message: OutboundMessage): Promise<void>;
+  
+  /**
+   * The userId prefix this channel owns (e.g. 'discord', 'friend', 'web').
+   * Used by the gateway to route outbound messages to the correct channel.
+   */
+  readonly channelPrefix?: string;
+}
+```
+
+### Lifecycle
+
+<Steps>
+  <Step title="Discovery">
+    Plugins are discovered from `plugins/channel/` directory at boot time
+  </Step>
+  <Step title="getPairingTools()">
+    Called during boot to merge pairing tools (e.g. `discord_pair`, `friends_chat_invite`)
+  </Step>
+  <Step title="start(context)">
+    Called after agentContext is built. Plugin connects to platform and begins listening for messages
+  </Step>
+  <Step title="Message Routing">
+    Plugin receives messages from platform and enqueues them via `context.enqueue(userId, message)`
+  </Step>
+  <Step title="Outbound Messages">
+    If `sendToUser()` is implemented, the gateway routes proactive messages to this channel
+  </Step>
+  <Step title="stop()">
+    Called during graceful shutdown. Plugin disconnects and flushes state
+  </Step>
+</Steps>
+
+### Runtime Context
+
+```typescript packages/types/src/index.ts
+export interface PluginRuntimeContext {
+  /** Push a message into the session queue and run the agent loop. */
+  enqueue(userId: string, message: string): Promise<string>;
+  
+  /** The initialized AgentContext. */
+  agentContext: AgentContext;
+  
+  /** Secrets manager for resolving tokens. */
+  secrets: SecretsManagerInterface;
+  
+  /** Config manager for reading/writing channel config. */
+  configManager: ConfigManagerInterface;
+  
+  /** Outbound gateway for sending proactive messages across channels. */
+  gateway?: OutboundGateway;
+}
+```
+
+### Example: Web Channel
+
+The built-in web channel uses SSE (Server-Sent Events) for real-time streaming:
+
+```typescript
+export const webChannelPlugin: ChannelPlugin = {
+  id: '@tinyclaw/channel-web',
+  name: 'Web UI',
+  description: 'Discord-like web interface with SSE streaming',
+  type: 'channel',
+  version: '1.0.0',
+  channelPrefix: 'web',
+
+  async start(context) {
+    // Start HTTP server on port 3000
+    // Serve Svelte app from src/web/
+    // Handle /api/chat POST endpoint
+    // Stream responses via SSE
+  },
+
+  async stop() {
+    // Close HTTP server
+    // Flush any pending SSE connections
+  },
+
+  async sendToUser(userId, message) {
+    // Send proactive message to web client via SSE
+  },
+};
+```
+
+### Example: Discord Channel
+
+```typescript
+export const discordChannelPlugin: ChannelPlugin = {
+  id: '@tinyclaw/channel-discord',
+  name: 'Discord',
+  description: 'Discord bot integration',
+  type: 'channel',
+  version: '1.0.0',
+  channelPrefix: 'discord',
+
+  getPairingTools(secrets, config) {
+    return [
+      {
+        name: 'discord_pair',
+        description: 'Pair a Discord channel with Tiny Claw',
+        parameters: {
+          type: 'object',
+          properties: {
+            channelId: { type: 'string' },
+            guildId: { type: 'string' },
+          },
+          required: ['channelId', 'guildId'],
+        },
+        async execute(args) {
+          // Store pairing in config
+          // Return success message
+        },
+      },
+    ];
+  },
+
+  async start(context) {
+    // Load Discord token from secrets
+    // Connect to Discord Gateway
+    // Listen for messages in paired channels
+    // Enqueue messages via context.enqueue()
+  },
+
+  async stop() {
+    // Disconnect from Discord Gateway
+  },
+
+  async sendToUser(userId, message) {
+    // Send message to Discord channel
+  },
+};
+```
+
+## Provider Plugins
+
+Provider plugins register additional LLM providers.
+
+### Interface
+
+```typescript packages/types/src/index.ts
+export interface ProviderPlugin extends PluginMeta {
+  readonly type: 'provider';
+  
+  /** Create and return an initialized Provider instance. */
+  createProvider(secrets: SecretsManagerInterface): Promise<Provider>;
+  
+  /** Optional pairing tools for conversational setup (API key, model config). */
+  getPairingTools?(secrets: SecretsManagerInterface, configManager: ConfigManagerInterface): Tool[];
+}
+```
+
+### Provider Interface
+
+```typescript packages/types/src/index.ts
+export interface Provider {
+  id: string;
+  name: string;
+  chat(messages: Message[], tools?: Tool[]): Promise<LLMResponse>;
+  isAvailable(): Promise<boolean>;
+}
+```
+
+### Example: OpenAI Provider
+
+```typescript
+export const openaiProviderPlugin: ProviderPlugin = {
+  id: '@tinyclaw/provider-openai',
+  name: 'OpenAI',
+  description: 'OpenAI GPT-4 and GPT-3.5',
+  type: 'provider',
+  version: '1.0.0',
+
+  async createProvider(secrets) {
+    const apiKey = await secrets.retrieve('provider.openai.apiKey');
+    
+    if (!apiKey) {
+      throw new Error('OpenAI API key not found. Use openai_set_key tool.');
+    }
+
+    return {
+      id: 'openai',
+      name: 'OpenAI',
+      
+      async chat(messages, tools) {
+        // Call OpenAI API
+        // Parse response
+        // Return LLMResponse
+      },
+      
+      async isAvailable() {
+        return !!apiKey;
+      },
+    };
+  },
+
+  getPairingTools(secrets, config) {
+    return [
+      {
+        name: 'openai_set_key',
+        description: 'Store OpenAI API key',
+        parameters: {
+          type: 'object',
+          properties: {
+            apiKey: { type: 'string' },
+          },
+          required: ['apiKey'],
+        },
+        async execute(args) {
+          await secrets.store('provider.openai.apiKey', args.apiKey);
+          return 'OpenAI API key stored successfully';
+        },
+      },
+    ];
+  },
+};
+```
+
+## Tool Plugins
+
+Tool plugins contribute additional agent capabilities.
+
+### Interface
+
+```typescript packages/types/src/index.ts
+export interface ToolsPlugin extends PluginMeta {
+  readonly type: 'tools';
+  
+  /** Return the tools this plugin contributes. */
+  createTools(context: AgentContext): Tool[];
+}
+```
+
+### Tool Interface
+
+```typescript packages/types/src/index.ts
+export interface Tool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>; // JSON Schema
+  execute(args: Record<string, unknown>): Promise<string>;
+}
+```
+
+### Example: Web Browsing Tools
+
+```typescript
+export const webBrowsingPlugin: ToolsPlugin = {
+  id: '@tinyclaw/tools-web-browsing',
+  name: 'Web Browsing',
+  description: 'Fetch and parse web pages',
+  type: 'tools',
+  version: '1.0.0',
+
+  createTools(context) {
+    return [
+      {
+        name: 'web_fetch',
+        description: 'Fetch content from a URL',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'URL to fetch' },
+          },
+          required: ['url'],
+        },
+        async execute(args) {
+          // Fetch URL
+          // Parse HTML
+          // Extract text content
+          return content;
+        },
+      },
+      {
+        name: 'web_search',
+        description: 'Search the web',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+          },
+          required: ['query'],
+        },
+        async execute(args) {
+          // Call search API (DuckDuckGo, Brave, etc.)
+          // Return top results
+        },
+      },
+    ];
+  },
+};
+```
+
+## Plugin Discovery
+
+Plugins are discovered automatically from the `plugins/` directory:
+
+```
+plugins/
+  channel/
+    discord/
+      package.json
+      index.ts        → exports ChannelPlugin
+    friends/
+      package.json
+      index.ts
+  provider/
+    openai/
+      package.json
+      index.ts        → exports ProviderPlugin
+  tools/
+    web-browsing/
+      package.json
+      index.ts        → exports ToolsPlugin
+```
+
+### Package.json Convention
+
+```json
+{
+  "name": "@tinyclaw/plugin-channel-discord",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "tinyclaw": {
+    "plugin": true,
+    "type": "channel"
+  }
+}
+```
+
+## Security Model
+
+### Owner-Only Tools
+
+Some tools can only be invoked by the instance owner:
+
+```typescript packages/types/src/index.ts
+export const OWNER_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  // Heartware modifications
+  'heartware_write',
+  'identity_update',
+  'soul_update',
+  // System control
+  'builtin_model_switch',
+  'tinyclaw_restart',
+  // Code execution
+  'execute_code',
+  // Delegation
+  'delegate_task',
+  // Shell execution
+  'run_shell',
+  // Config & secrets
+  'config_set',
+  'secrets_store',
+  // Channel management
+  'discord_pair',
+  'friends_chat_invite',
+]);
+```
+
+### Shield Integration
+
+All tool calls are evaluated by the Shield engine before execution:
+
+```typescript
+// Evaluate tool call against SHIELD.md threats
+const decision = shield.evaluate({
+  scope: 'tool.call',
+  toolName: toolCall.name,
+  toolArgs: toolCall.arguments,
+  userId,
+});
+
+if (decision.action === 'block') {
+  throw new Error(`Blocked by Shield: ${decision.reason}`);
+} else if (decision.action === 'require_approval') {
+  // Store pending approval and ask user
+}
+```
+
+## Plugin Development Guide
+
+<Steps>
+  <Step title="Choose Plugin Type">
+    Decide whether you're building a channel, provider, or tool plugin
+  </Step>
+  <Step title="Create Package">
+    Create a new directory under `plugins/channel/`, `plugins/provider/`, or `plugins/tools/`
+  </Step>
+  <Step title="Implement Interface">
+    Export a plugin object that implements the appropriate interface
+  </Step>
+  <Step title="Add Metadata">
+    Include proper `package.json` with `tinyclaw.plugin` field
+  </Step>
+  <Step title="Test Locally">
+    Run `bun install` and `bun start` to test your plugin
+  </Step>
+  <Step title="Publish (Optional)">
+    Publish to npm as `@tinyclaw/plugin-{type}-{name}` or keep it local
+  </Step>
+</Steps>
+
+<Card title="Channel Plugin Guide" icon="book" href="/plugins/channel/README.md">
+  Detailed guide for building channel plugins
+</Card>
+
+## Built-in vs Plugin
+
+| Component | Built-in | Plugin |
+|---|---|---|
+| Web UI | ✅ | |
+| Ollama Cloud | ✅ | |
+| Memory tools | ✅ | |
+| Heartware tools | ✅ | |
+| Delegation tools | ✅ | |
+| Discord | | ✅ |
+| Friends chat | | ✅ |
+| OpenAI | | ✅ |
+| Anthropic | | ✅ |
+| Web browsing | | 🔜 |
+| Image generation | | 🔜 |
+
+<Card title="Next: Memory System" icon="brain" href="/concepts/memory-system">
+  Learn about adaptive memory with episodic storage
+</Card>

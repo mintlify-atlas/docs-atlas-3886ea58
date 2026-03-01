@@ -1,0 +1,452 @@
+---
+title: '@tinyclaw/memory'
+description: 'Adaptive memory engine with episodic events and temporal decay'
+---
+
+# @tinyclaw/memory
+
+Adaptive memory engine (v3) that learns what to remember and what to forget. Combines episodic memory, full-text search, and temporal decay for context-aware retrieval.
+
+## Installation
+
+```bash
+npm install @tinyclaw/memory
+```
+
+## Core Concepts
+
+Tiny Claw's memory system uses a **3-layer architecture**:
+
+1. **Layer 1: Episodic Memory** - Timestamped events with outcomes and importance scoring
+2. **Layer 2: Semantic Index** - FTS5 full-text search with BM25 ranking (built into bun:sqlite)
+3. **Layer 3: Temporal Decay** - Ebbinghaus forgetting curve + access frequency strengthening
+
+### Scoring Formula
+
+```
+relevance = (fts5_rank × 0.4) + (temporal_score × 0.3) + (importance × 0.3)
+```
+
+Where:
+- **fts5_rank**: Normalized SQLite FTS5 BM25 rank (0.0–1.0)
+- **temporal_score**: `e^(-0.05 × days_since_last_access) × (1 + 0.02 × access_count)`
+- **importance**: Base importance from event type, decayed over time
+
+## Main Exports
+
+### `createMemoryEngine(db: Database): MemoryEngine`
+
+Create a memory engine instance.
+
+<ParamField path="db" type="Database" required>
+  Database instance from `@tinyclaw/core`
+</ParamField>
+
+<ResponseField name="engine" type="MemoryEngine">
+  Memory engine with methods for recording, searching, consolidating, and retrieving memories
+</ResponseField>
+
+```typescript
+import { createDatabase } from '@tinyclaw/core';
+import { createMemoryEngine } from '@tinyclaw/memory';
+
+const db = createDatabase('/path/to/tiny-claw.db');
+const memory = createMemoryEngine(db);
+```
+
+## MemoryEngine Methods
+
+### `recordEvent(userId, event): string`
+
+Store an episodic memory event.
+
+<ParamField path="userId" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="event.type" type="EpisodicEventType" required>
+  Event type: `task_completed`, `preference_learned`, `correction`, `delegation_result`, or `fact_stored`
+</ParamField>
+
+<ParamField path="event.content" type="string" required>
+  Event content
+</ParamField>
+
+<ParamField path="event.outcome" type="string">
+  Optional outcome or result
+</ParamField>
+
+<ParamField path="event.importance" type="number">
+  Importance score (0.0–1.0). Defaults based on event type.
+</ParamField>
+
+<ResponseField name="id" type="string">
+  UUID of the created event
+</ResponseField>
+
+**Default Importance by Event Type:**
+- `correction`: 0.9
+- `preference_learned`: 0.8
+- `fact_stored`: 0.6
+- `task_completed`: 0.5
+- `delegation_result`: 0.5
+
+```typescript
+const eventId = memory.recordEvent('web:owner', {
+  type: 'preference_learned',
+  content: 'User prefers concise responses',
+  importance: 0.8,
+});
+```
+
+### `search(userId, query, limit?): MemorySearchResult[]`
+
+Search memories using hybrid scoring (FTS5 + temporal decay + importance).
+
+<ParamField path="userId" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="query" type="string" required>
+  Search query
+</ParamField>
+
+<ParamField path="limit" type="number">
+  Maximum results (default: 20)
+</ParamField>
+
+<ResponseField name="results" type="MemorySearchResult[]">
+  Sorted results (highest relevance first)
+</ResponseField>
+
+```typescript
+const results = memory.search('web:owner', 'Philippines timezone', 10);
+
+for (const result of results) {
+  console.log(`[${result.source}] ${result.content} (score: ${result.relevanceScore.toFixed(2)})`);
+}
+```
+
+**MemorySearchResult:**
+```typescript
+interface MemorySearchResult {
+  id: string;
+  content: string;
+  relevanceScore: number;  // Combined FTS5 + temporal + importance
+  source: 'episodic' | 'key_value';
+}
+```
+
+### `consolidate(userId): { merged, pruned, decayed }`
+
+Consolidate memories (merge duplicates, prune low-value entries, apply temporal decay).
+
+<ParamField path="userId" type="string" required>
+  User ID
+</ParamField>
+
+<ResponseField name="merged" type="number">
+  Number of duplicate entries merged
+</ResponseField>
+
+<ResponseField name="pruned" type="number">
+  Number of low-value entries deleted
+</ResponseField>
+
+<ResponseField name="decayed" type="number">
+  Number of entries with importance decayed
+</ResponseField>
+
+**Consolidation Process:**
+1. **Decay**: Reduce importance by 5% for entries not accessed in 7+ days
+2. **Prune**: Delete entries with importance < 0.1 AND access_count == 0 AND older than 30 days
+3. **Merge**: Combine duplicate/similar entries (>80% content similarity)
+
+```typescript
+const stats = memory.consolidate('web:owner');
+console.log(`Merged: ${stats.merged}, Pruned: ${stats.pruned}, Decayed: ${stats.decayed}`);
+```
+
+### `getContextForAgent(userId, query?): string`
+
+Get formatted context string for injection into agent system prompt.
+
+<ParamField path="userId" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="query" type="string">
+  Optional search query for relevant memories
+</ParamField>
+
+<ResponseField name="context" type="string">
+  Formatted context with relevant memories, high-importance events, and key-value facts
+</ResponseField>
+
+```typescript
+const context = memory.getContextForAgent('web:owner', 'What timezone am I in?');
+
+// Inject into system prompt
+const systemPrompt = basePrompt + context;
+```
+
+**Output Format:**
+```markdown
+## Relevant Memories
+📝 User mentioned living in Philippines (UTC+08:00)
+🔑 timezone: UTC+08:00
+
+## Important Context
+⭐ Preference: User prefers concise responses
+⚠️ Correction: Always use 24-hour time format
+
+## Stored Facts
+- location: Philippines
+- timezone: UTC+08:00
+```
+
+### `reinforce(memoryId): void`
+
+Strengthen a memory (bump access count and last accessed timestamp).
+
+<ParamField path="memoryId" type="string" required>
+  Event ID to reinforce
+</ParamField>
+
+```typescript
+memory.reinforce(eventId);
+```
+
+### `getEvent(id): EpisodicRecord | null`
+
+Retrieve a single episodic event by ID.
+
+<ParamField path="id" type="string" required>
+  Event ID
+</ParamField>
+
+<ResponseField name="event" type="EpisodicRecord | null">
+  Event record or null if not found
+</ResponseField>
+
+```typescript
+const event = memory.getEvent(eventId);
+if (event) {
+  console.log(event.content);
+}
+```
+
+### `getEvents(userId, limit?): EpisodicRecord[]`
+
+Get recent episodic events for a user.
+
+<ParamField path="userId" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="limit" type="number">
+  Maximum events (default: 50)
+</ParamField>
+
+<ResponseField name="events" type="EpisodicRecord[]">
+  Events sorted by created_at (descending)
+</ResponseField>
+
+```typescript
+const recentEvents = memory.getEvents('web:owner', 10);
+```
+
+## Types
+
+### `EpisodicEventType`
+
+```typescript
+type EpisodicEventType =
+  | 'task_completed'
+  | 'preference_learned'
+  | 'correction'
+  | 'delegation_result'
+  | 'fact_stored';
+```
+
+### `EpisodicRecord`
+
+```typescript
+interface EpisodicRecord {
+  id: string;
+  userId: string;
+  eventType: EpisodicEventType;
+  content: string;
+  outcome: string | null;
+  importance: number;
+  accessCount: number;
+  createdAt: number;
+  lastAccessedAt: number;
+}
+```
+
+### `MemorySearchResult`
+
+```typescript
+interface MemorySearchResult {
+  id: string;
+  content: string;
+  relevanceScore: number;  // Combined: FTS5 rank + temporal decay + importance
+  source: 'episodic' | 'key_value';
+}
+```
+
+### `MemoryEngine`
+
+```typescript
+interface MemoryEngine {
+  recordEvent(
+    userId: string,
+    event: {
+      type: EpisodicEventType;
+      content: string;
+      outcome?: string;
+      importance?: number;
+    }
+  ): string;
+
+  search(userId: string, query: string, limit?: number): MemorySearchResult[];
+  
+  consolidate(userId: string): {
+    merged: number;
+    pruned: number;
+    decayed: number;
+  };
+  
+  getContextForAgent(userId: string, query?: string): string;
+  
+  reinforce(memoryId: string): void;
+  
+  getEvent(id: string): EpisodicRecord | null;
+  
+  getEvents(userId: string, limit?: number): EpisodicRecord[];
+}
+```
+
+## Example Usage
+
+### Basic Memory Operations
+
+```typescript
+import { createDatabase } from '@tinyclaw/core';
+import { createMemoryEngine } from '@tinyclaw/memory';
+
+const db = createDatabase('/path/to/tiny-claw.db');
+const memory = createMemoryEngine(db);
+
+// Record a preference
+memory.recordEvent('web:owner', {
+  type: 'preference_learned',
+  content: 'User prefers dark mode',
+  importance: 0.8,
+});
+
+// Record a correction
+memory.recordEvent('web:owner', {
+  type: 'correction',
+  content: 'User corrected timezone to UTC+08:00',
+  outcome: 'Updated FRIEND.md',
+  importance: 0.9,
+});
+
+// Search memories
+const results = memory.search('web:owner', 'timezone');
+for (const result of results) {
+  console.log(result.content);
+}
+```
+
+### Integration with Agent Loop
+
+```typescript
+import { agentLoop, createDatabase } from '@tinyclaw/core';
+import { createMemoryEngine } from '@tinyclaw/memory';
+
+const db = createDatabase('/path/to/tiny-claw.db');
+const memory = createMemoryEngine(db);
+
+const agentContext = {
+  db,
+  provider,
+  learning,
+  tools,
+  memory, // Inject memory engine
+};
+
+// The agent loop automatically:
+// 1. Calls memory.getContextForAgent() to inject relevant memories
+// 2. Records episodic events after task completion
+await agentLoop('What timezone am I in?', 'web:owner', agentContext);
+```
+
+### Periodic Consolidation
+
+```typescript
+import { createMemoryEngine } from '@tinyclaw/memory';
+
+const memory = createMemoryEngine(db);
+
+// Run consolidation daily
+setInterval(() => {
+  const stats = memory.consolidate('web:owner');
+  console.log(`Memory consolidation: ${JSON.stringify(stats)}`);
+}, 24 * 60 * 60 * 1000);
+```
+
+### Manual Memory Reinforcement
+
+```typescript
+import { createMemoryEngine } from '@tinyclaw/memory';
+
+const memory = createMemoryEngine(db);
+
+// Record an important event
+const eventId = memory.recordEvent('web:owner', {
+  type: 'preference_learned',
+  content: 'User loves pineapple on pizza',
+  importance: 0.9,
+});
+
+// Reinforce it when accessed
+const event = memory.getEvent(eventId);
+if (event) {
+  memory.reinforce(eventId);
+}
+```
+
+## Performance Considerations
+
+- **FTS5 Index**: All episodic events are automatically indexed in SQLite FTS5
+- **Search Speed**: ~1-2ms for 1000 events, ~10-20ms for 10,000 events
+- **Consolidation**: Run daily or weekly to prevent database bloat
+- **Memory Usage**: ~1KB per episodic event (including FTS5 index)
+
+## Design Philosophy
+
+**Why not vector embeddings?**
+
+Tiny Claw's memory system uses **FTS5 + temporal decay + importance scoring** instead of vector embeddings for several reasons:
+
+1. **Zero API dependencies** - No OpenAI/Anthropic API calls for embeddings
+2. **100% local** - Works offline, no external services
+3. **Deterministic** - Same query always returns same results (reproducible)
+4. **Fast** - BM25 is faster than cosine similarity on small-medium datasets
+5. **Explainable** - Clear why a memory was retrieved (keyword match + temporal + importance)
+6. **Ebbinghaus-inspired** - Mimics human memory decay patterns
+
+**Beats vector search** when:
+- Dataset < 100K entries (typical for personal agent)
+- Exact keyword matches are important
+- Temporal recency matters
+- Offline operation is required
+
+## Related Packages
+
+- [@tinyclaw/core](/api/core) - Core agent runtime and database
+- [@tinyclaw/types](/api/types) - Type definitions
+- [@tinyclaw/learning](/api/learning) - Pattern learning engine

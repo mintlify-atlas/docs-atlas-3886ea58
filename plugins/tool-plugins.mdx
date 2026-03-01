@@ -1,0 +1,599 @@
+---
+title: Tools Plugins
+description: Create tools plugins to extend Tiny Claw's agent capabilities
+---
+
+## Overview
+
+Tools plugins contribute additional capabilities to the Tiny Claw agent by adding new tools that can be invoked during conversations. Tools enable the agent to interact with external systems, perform computations, access APIs, and more.
+
+## ToolsPlugin Interface
+
+Tools plugins implement the `ToolsPlugin` interface from `@tinyclaw/types`:
+
+```typescript
+interface ToolsPlugin extends PluginMeta {
+  readonly type: 'tools';
+  
+  /** Return the tools this plugin contributes */
+  createTools(context: AgentContext): Tool[];
+}
+```
+
+### Interface Fields
+
+<ParamField path="type" type="'tools'" required>
+  Must be `'tools'` for tools plugins
+</ParamField>
+
+<ParamField path="createTools" type="function" required>
+  Factory method that returns an array of Tool instances.
+  
+  **Parameters:**
+  - `context: AgentContext` - Full agent context including database, provider, memory, etc.
+  
+  **Returns:** `Tool[]` - Array of tools
+</ParamField>
+
+## Tool Interface
+
+Each tool implements the `Tool` interface:
+
+```typescript
+interface Tool {
+  /** Unique tool name (used by LLM to invoke) */
+  name: string;
+  
+  /** Description for the LLM to understand when to use this tool */
+  description: string;
+  
+  /** JSON Schema for tool parameters */
+  parameters: Record<string, unknown>;
+  
+  /** Execute the tool with given arguments */
+  execute(args: Record<string, unknown>): Promise<string>;
+}
+```
+
+<ParamField path="name" type="string" required>
+  Unique identifier for the tool. Use snake_case (e.g., `get_weather`, `search_files`).
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Clear description of what the tool does and when to use it. This is shown to the LLM.
+</ParamField>
+
+<ParamField path="parameters" type="object" required>
+  JSON Schema (OpenAPI 3.0) defining the tool's parameters.
+  
+  **Example:**
+  ```typescript
+  {
+    type: 'object',
+    properties: {
+      city: { 
+        type: 'string', 
+        description: 'City name' 
+      },
+      units: { 
+        type: 'string', 
+        enum: ['metric', 'imperial'],
+        description: 'Temperature units'
+      }
+    },
+    required: ['city']
+  }
+  ```
+</ParamField>
+
+<ParamField path="execute" type="function" required>
+  Async function that executes the tool's logic.
+  
+  **Parameters:**
+  - `args: Record<string, unknown>` - Validated arguments matching the schema
+  
+  **Returns:** `Promise<string>` - Result message for the agent
+</ParamField>
+
+## AgentContext
+
+The agent context provides access to all core subsystems:
+
+```typescript
+interface AgentContext {
+  /** Database for persistent storage */
+  db: Database;
+  
+  /** Current LLM provider */
+  provider: Provider;
+  
+  /** Learning engine for pattern recognition */
+  learning: LearningEngine;
+  
+  /** All available tools */
+  tools: Tool[];
+  
+  /** Optional heartware configuration context */
+  heartwareContext?: string;
+  
+  /** Secrets manager for API keys */
+  secrets?: SecretsManagerInterface;
+  
+  /** Config manager for settings */
+  configManager?: ConfigManagerInterface;
+  
+  /** Current model tag */
+  modelName?: string;
+  
+  /** Provider name */
+  providerName?: string;
+  
+  /** Owner userId */
+  ownerId?: string;
+  
+  /** Adaptive memory engine */
+  memory?: MemoryEngine;
+  
+  /** SHIELD.md enforcement engine */
+  shield?: ShieldEngine;
+  
+  /** Delegation subsystems */
+  delegation?: DelegationContext;
+  
+  /** Compaction engine */
+  compactor?: CompactionEngine;
+  
+  /** Software update context */
+  updateContext?: string;
+}
+```
+
+## Complete Example: Weather Tools Plugin
+
+Here's a complete example of a tools plugin that adds weather capabilities:
+
+```typescript
+// index.ts
+import type { AgentContext, Tool, ToolsPlugin } from '@tinyclaw/types';
+import { logger } from '@tinyclaw/logger';
+
+const weatherPlugin: ToolsPlugin = {
+  id: '@yourname/plugin-tools-weather',
+  name: 'Weather Tools',
+  description: 'Get current weather and forecasts',
+  type: 'tools',
+  version: '1.0.0',
+
+  createTools(context: AgentContext): Tool[] {
+    return [
+      {
+        name: 'get_current_weather',
+        description: 'Get the current weather for a specific city',
+        parameters: {
+          type: 'object',
+          properties: {
+            city: {
+              type: 'string',
+              description: 'City name (e.g., "San Francisco", "London")',
+            },
+            units: {
+              type: 'string',
+              enum: ['metric', 'imperial'],
+              description: 'Temperature units (default: metric)',
+            },
+          },
+          required: ['city'],
+        },
+        async execute(args: Record<string, unknown>): Promise<string> {
+          const city = args.city as string;
+          const units = (args.units as string) || 'metric';
+
+          try {
+            // Get API key from secrets
+            const apiKey = await context.secrets?.retrieve('weather.apiKey');
+            if (!apiKey) {
+              return 'Error: Weather API key not configured. Please store it with secrets_store.';
+            }
+
+            // Call weather API
+            const response = await fetch(
+              `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=${units}&appid=${apiKey}`
+            );
+
+            if (!response.ok) {
+              return `Error: Failed to fetch weather for ${city} (${response.status})`;
+            }
+
+            const data = await response.json();
+            const temp = data.main.temp;
+            const description = data.weather[0].description;
+            const unitSymbol = units === 'metric' ? '°C' : '°F';
+
+            return `Current weather in ${city}: ${temp}${unitSymbol}, ${description}`;
+          } catch (error) {
+            logger.error('Weather tool error:', error);
+            return `Error fetching weather: ${(error as Error).message}`;
+          }
+        },
+      },
+      {
+        name: 'get_weather_forecast',
+        description: 'Get 5-day weather forecast for a city',
+        parameters: {
+          type: 'object',
+          properties: {
+            city: {
+              type: 'string',
+              description: 'City name',
+            },
+            units: {
+              type: 'string',
+              enum: ['metric', 'imperial'],
+              description: 'Temperature units (default: metric)',
+            },
+          },
+          required: ['city'],
+        },
+        async execute(args: Record<string, unknown>): Promise<string> {
+          const city = args.city as string;
+          const units = (args.units as string) || 'metric';
+
+          try {
+            const apiKey = await context.secrets?.retrieve('weather.apiKey');
+            if (!apiKey) {
+              return 'Error: Weather API key not configured.';
+            }
+
+            const response = await fetch(
+              `https://api.openweathermap.org/data/2.5/forecast?q=${encodeURIComponent(city)}&units=${units}&appid=${apiKey}`
+            );
+
+            if (!response.ok) {
+              return `Error: Failed to fetch forecast for ${city}`;
+            }
+
+            const data = await response.json();
+            const forecasts = data.list.slice(0, 5).map((item: any) => {
+              const date = new Date(item.dt * 1000).toLocaleDateString();
+              const temp = item.main.temp;
+              const desc = item.weather[0].description;
+              const unitSymbol = units === 'metric' ? '°C' : '°F';
+              return `${date}: ${temp}${unitSymbol}, ${desc}`;
+            });
+
+            return `5-day forecast for ${city}:\n${forecasts.join('\n')}`;
+          } catch (error) {
+            logger.error('Forecast tool error:', error);
+            return `Error fetching forecast: ${(error as Error).message}`;
+          }
+        },
+      },
+    ];
+  },
+};
+
+export default weatherPlugin;
+```
+
+## Parameter Schema Best Practices
+
+### Use JSON Schema
+
+Follow the JSON Schema specification for parameters:
+
+```typescript
+parameters: {
+  type: 'object',
+  properties: {
+    query: {
+      type: 'string',
+      description: 'Search query',
+      minLength: 1,
+    },
+    limit: {
+      type: 'number',
+      description: 'Max results to return',
+      minimum: 1,
+      maximum: 100,
+      default: 10,
+    },
+    filters: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Filter criteria',
+    },
+  },
+  required: ['query'],
+}
+```
+
+### Supported Types
+
+- `string` - Text values
+- `number` - Numeric values (integers or floats)
+- `boolean` - True/false
+- `array` - Lists of values
+- `object` - Nested objects
+- `enum` - Fixed set of values
+
+### Add Descriptions
+
+Always include clear descriptions for parameters:
+
+```typescript
+properties: {
+  email: {
+    type: 'string',
+    description: 'User email address in valid format',
+    pattern: '^[^@]+@[^@]+\\.[^@]+$',
+  },
+}
+```
+
+## Accessing Context Features
+
+### Using the Database
+
+```typescript
+async execute(args: Record<string, unknown>): Promise<string> {
+  const userId = 'web:owner'; // or from context
+  
+  // Save to key-value memory
+  context.db.saveMemory(userId, 'preference.theme', 'dark');
+  
+  // Get memory
+  const memory = context.db.getMemory(userId);
+  
+  // Get conversation history
+  const history = context.db.getHistory(userId, 10);
+  
+  return 'Data saved';
+}
+```
+
+### Using Secrets Manager
+
+```typescript
+async execute(args: Record<string, unknown>): Promise<string> {
+  if (!context.secrets) {
+    return 'Error: Secrets manager not available';
+  }
+  
+  // Check if secret exists
+  const hasKey = await context.secrets.check('api.key');
+  
+  // Retrieve secret
+  const apiKey = await context.secrets.retrieve('api.key');
+  
+  if (!apiKey) {
+    return 'Error: API key not configured';
+  }
+  
+  // Use the key...
+  return 'Success';
+}
+```
+
+### Using Memory Engine
+
+```typescript
+async execute(args: Record<string, unknown>): Promise<string> {
+  if (!context.memory) {
+    return 'Error: Memory engine not available';
+  }
+  
+  const userId = 'web:owner';
+  
+  // Record an event
+  const eventId = context.memory.recordEvent(userId, {
+    type: 'task_completed',
+    content: 'User completed weather query',
+    importance: 0.7,
+  });
+  
+  // Search memory
+  const results = context.memory.search(userId, 'weather');
+  
+  return `Found ${results.length} related memories`;
+}
+```
+
+### Using Config Manager
+
+```typescript
+async execute(args: Record<string, unknown>): Promise<string> {
+  if (!context.configManager) {
+    return 'Error: Config manager not available';
+  }
+  
+  // Get config value
+  const theme = context.configManager.get<string>('ui.theme', 'light');
+  
+  // Set config value
+  context.configManager.set('ui.theme', 'dark');
+  
+  // Check if key exists
+  const hasTheme = context.configManager.has('ui.theme');
+  
+  return `Theme: ${theme}`;
+}
+```
+
+## Owner-Only Tools
+
+Some tools should only be available to the owner. Add them to the `OWNER_ONLY_TOOLS` set:
+
+```typescript
+import { OWNER_ONLY_TOOLS } from '@tinyclaw/types';
+
+// This is read-only in the types package
+// For owner-only tools in your plugin, check manually:
+
+execute(args: Record<string, unknown>): Promise<string> {
+  const userId = args.userId as string;
+  
+  if (userId !== context.ownerId) {
+    return 'Error: This tool is only available to the owner.';
+  }
+  
+  // Owner-only logic...
+  return 'Success';
+}
+```
+
+## Testing Tools Plugins
+
+### Unit Tests
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+import weatherPlugin from './index.js';
+
+describe('Weather Tools Plugin', () => {
+  const mockContext = {
+    db: mockDatabase,
+    provider: mockProvider,
+    learning: mockLearning,
+    tools: [],
+    secrets: {
+      retrieve: vi.fn().mockResolvedValue('mock-api-key'),
+      check: vi.fn().mockResolvedValue(true),
+    },
+  } as any;
+
+  it('creates tools correctly', () => {
+    const tools = weatherPlugin.createTools(mockContext);
+    expect(tools).toHaveLength(2);
+    expect(tools[0].name).toBe('get_current_weather');
+  });
+
+  it('executes get_current_weather', async () => {
+    const tools = weatherPlugin.createTools(mockContext);
+    const result = await tools[0].execute({ city: 'London' });
+    expect(result).toContain('Current weather');
+  });
+
+  it('handles missing API key', async () => {
+    const contextWithoutKey = {
+      ...mockContext,
+      secrets: {
+        retrieve: vi.fn().mockResolvedValue(null),
+      },
+    };
+    
+    const tools = weatherPlugin.createTools(contextWithoutKey);
+    const result = await tools[0].execute({ city: 'London' });
+    expect(result).toContain('Error: Weather API key not configured');
+  });
+});
+```
+
+### Integration Tests
+
+Test with a real Tiny Claw instance:
+
+```bash
+# Link plugin locally
+npm link
+
+# In Tiny Claw directory
+npm link @yourname/plugin-tools-weather
+
+# Enable plugin
+tinyclaw config set plugins.enabled '["@yourname/plugin-tools-weather"]'
+
+# Restart
+tinyclaw restart
+
+# Test via conversation
+tinyclaw chat
+> What's the weather in London?
+```
+
+## Best Practices
+
+### Error Handling
+
+```typescript
+async execute(args: Record<string, unknown>): Promise<string> {
+  try {
+    // Tool logic
+    return 'Success';
+  } catch (error) {
+    logger.error('Tool error:', error);
+    return `Error: ${(error as Error).message}`;
+  }
+}
+```
+
+### Input Validation
+
+```typescript
+async execute(args: Record<string, unknown>): Promise<string> {
+  const email = args.email as string;
+  
+  // Validate format
+  if (!email.includes('@')) {
+    return 'Error: Invalid email format';
+  }
+  
+  // Sanitize input
+  const clean = email.trim().toLowerCase();
+  
+  // Use validated input...
+}
+```
+
+### Logging
+
+```typescript
+import { logger } from '@tinyclaw/logger';
+
+logger.debug('Tool called:', { name: 'get_weather', args });
+logger.info('Weather fetched successfully');
+logger.warn('API rate limit approaching');
+logger.error('Tool execution failed:', error);
+```
+
+### Performance
+
+- Keep tool execution fast (< 5 seconds ideal)
+- Use caching for expensive operations
+- Implement timeouts for external API calls
+- Provide progress feedback for long operations
+
+### Security
+
+- Validate and sanitize all inputs
+- Never expose sensitive data in responses
+- Use secrets manager for credentials
+- Implement rate limiting for expensive tools
+- Check user permissions before executing
+
+## Packaging
+
+Ensure your `package.json` includes:
+
+```json
+{
+  "name": "@yourname/plugin-tools-weather",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "keywords": ["tinyclaw", "plugin", "tools", "weather"],
+  "peerDependencies": {
+    "@tinyclaw/types": "^2.0.0"
+  }
+}
+```
+
+## Next Steps
+
+<Card title="Publishing Plugins" icon="upload" href="/plugins/publishing">
+  Learn how to publish your plugin to npm
+</Card>

@@ -1,0 +1,485 @@
+---
+title: '@tinyclaw/intercom'
+description: 'Lightweight pub/sub event bus for inter-agent communication'
+---
+
+## Overview
+
+The `@tinyclaw/intercom` package provides a lightweight pub/sub event bus for inter-agent communication in Tiny Claw. It enables agents to broadcast and listen for lifecycle events, task updates, memory changes, and blackboard activity.
+
+### Features
+
+- **Topic-based subscriptions** — Subscribe to specific event types
+- **Wildcard subscriptions** — Listen to all events across all topics
+- **Event history** — Bounded ring buffer per topic (last N events)
+- **Zero dependencies** — Pure TypeScript, no external deps
+- **Unsubscribe callbacks** — Clean subscription management
+- **Error isolation** — Handler errors don't cascade
+
+## Installation
+
+```bash
+bun add @tinyclaw/intercom
+```
+
+## Usage
+
+### Basic Setup
+
+```typescript
+import { createIntercom } from '@tinyclaw/intercom';
+
+const intercom = createIntercom();
+
+// Subscribe to task events
+const unsubscribe = intercom.on('task:completed', (event) => {
+  console.log('Task completed:', event.data);
+});
+
+// Emit an event
+intercom.emit('task:completed', 'user123', {
+  taskId: 'task-456',
+  duration: 1234,
+});
+
+// Unsubscribe when done
+unsubscribe();
+```
+
+### Wildcard Subscriptions
+
+```typescript
+// Listen to all events
+const unsubscribe = intercom.onAny((event) => {
+  console.log(`[${event.topic}] ${JSON.stringify(event.data)}`);
+});
+
+intercom.emit('agent:created', 'user123', { agentId: 'heartware-1' });
+intercom.emit('memory:updated', 'user456', { memories: 5 });
+// Both events are received by the wildcard handler
+```
+
+### Event History
+
+```typescript
+// Get recent task completions
+const recentTasks = intercom.recent('task:completed', 5);
+for (const event of recentTasks) {
+  console.log(event.data);
+}
+
+// Get all recent events across all topics
+const allRecent = intercom.recentAll(10);
+```
+
+### Multiple Handlers
+
+```typescript
+// Multiple handlers for the same topic
+const unsub1 = intercom.on('task:queued', (event) => {
+  console.log('Handler 1:', event.data.taskId);
+});
+
+const unsub2 = intercom.on('task:queued', (event) => {
+  console.log('Handler 2:', event.data.priority);
+});
+
+// Both handlers are called when event is emitted
+intercom.emit('task:queued', 'user123', {
+  taskId: 'task-789',
+  priority: 'high',
+});
+```
+
+### Cleanup
+
+```typescript
+// Clear all subscriptions and history
+intercom.clear();
+```
+
+## API Reference
+
+### `createIntercom(historyLimit?)`
+
+Create a new intercom instance.
+
+<ParamField path="historyLimit" type="number" default="100">
+  Maximum number of events to store per topic.
+</ParamField>
+
+**Returns:** `Intercom`
+
+---
+
+### `Intercom`
+
+#### `on(topic, handler)`
+
+Subscribe to a specific topic.
+
+<ParamField path="topic" type="IntercomTopic" required>
+  The topic to subscribe to.
+</ParamField>
+
+<ParamField path="handler" type="(event: IntercomMessage) => void" required>
+  Handler function called when events are emitted.
+</ParamField>
+
+**Returns:** `() => void` - Unsubscribe function
+
+---
+
+#### `onAny(handler)`
+
+Subscribe to all topics (wildcard).
+
+<ParamField path="handler" type="(event: IntercomMessage) => void" required>
+  Handler function called for all events.
+</ParamField>
+
+**Returns:** `() => void` - Unsubscribe function
+
+---
+
+#### `emit(topic, userId, data?)`
+
+Emit an event to all subscribers.
+
+<ParamField path="topic" type="IntercomTopic" required>
+  The topic to emit on.
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  The user ID associated with this event.
+</ParamField>
+
+<ParamField path="data" type="Record<string, unknown>">
+  Optional event data.
+</ParamField>
+
+---
+
+#### `recent(topic, limit?)`
+
+Get recent events for a specific topic.
+
+<ParamField path="topic" type="IntercomTopic" required>
+  The topic to query.
+</ParamField>
+
+<ParamField path="limit" type="number" default="10">
+  Maximum number of events to return.
+</ParamField>
+
+**Returns:** `IntercomMessage[]` - Array of recent events (oldest to newest)
+
+---
+
+#### `recentAll(limit?)`
+
+Get recent events across all topics.
+
+<ParamField path="limit" type="number" default="10">
+  Maximum number of events to return.
+</ParamField>
+
+**Returns:** `IntercomMessage[]` - Array of recent events (newest to oldest)
+
+---
+
+#### `clear()`
+
+Clear all subscriptions and event history.
+
+---
+
+### Types
+
+#### `IntercomTopic`
+
+Supported event topics:
+
+```typescript
+type IntercomTopic =
+  // Task lifecycle
+  | 'task:queued'
+  | 'task:completed'
+  | 'task:failed'
+  // Agent lifecycle
+  | 'agent:created'
+  | 'agent:dismissed'
+  | 'agent:revived'
+  // Memory updates
+  | 'memory:updated'
+  | 'memory:consolidated'
+  // Blackboard activity
+  | 'blackboard:proposal'
+  | 'blackboard:resolved'
+  // Nudge system
+  | 'nudge:scheduled'
+  | 'nudge:delivered'
+  | 'nudge:suppressed';
+```
+
+#### `IntercomMessage`
+
+Event message structure:
+
+<ResponseField name="topic" type="IntercomTopic">
+  The event topic.
+</ResponseField>
+
+<ResponseField name="timestamp" type="number">
+  Unix timestamp (milliseconds) when event was emitted.
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  User ID associated with the event.
+</ResponseField>
+
+<ResponseField name="data" type="Record<string, unknown>">
+  Event-specific data.
+</ResponseField>
+
+## Event Topics
+
+### Task Events
+
+**`task:queued`** — Task added to queue
+```typescript
+intercom.emit('task:queued', userId, {
+  taskId: 'task-123',
+  priority: 'high',
+  type: 'chat',
+});
+```
+
+**`task:completed`** — Task finished successfully
+```typescript
+intercom.emit('task:completed', userId, {
+  taskId: 'task-123',
+  duration: 1234,
+  result: 'success',
+});
+```
+
+**`task:failed`** — Task failed with error
+```typescript
+intercom.emit('task:failed', userId, {
+  taskId: 'task-123',
+  error: 'Timeout exceeded',
+});
+```
+
+---
+
+### Agent Events
+
+**`agent:created`** — New agent instance created
+```typescript
+intercom.emit('agent:created', userId, {
+  agentId: 'heartware-1',
+  personality: 'helpful',
+});
+```
+
+**`agent:dismissed`** — Agent instance dismissed
+```typescript
+intercom.emit('agent:dismissed', userId, {
+  agentId: 'heartware-1',
+  reason: 'idle_timeout',
+});
+```
+
+**`agent:revived`** — Dismissed agent brought back
+```typescript
+intercom.emit('agent:revived', userId, {
+  agentId: 'heartware-1',
+});
+```
+
+---
+
+### Memory Events
+
+**`memory:updated`** — Agent memory updated
+```typescript
+intercom.emit('memory:updated', userId, {
+  agentId: 'heartware-1',
+  memoryCount: 42,
+});
+```
+
+**`memory:consolidated`** — Memory consolidation occurred
+```typescript
+intercom.emit('memory:consolidated', userId, {
+  agentId: 'heartware-1',
+  before: 100,
+  after: 50,
+});
+```
+
+---
+
+### Blackboard Events
+
+**`blackboard:proposal`** — New proposal posted
+```typescript
+intercom.emit('blackboard:proposal', userId, {
+  proposalId: 'prop-123',
+  type: 'workflow_optimization',
+});
+```
+
+**`blackboard:resolved`** — Proposal resolved
+```typescript
+intercom.emit('blackboard:resolved', userId, {
+  proposalId: 'prop-123',
+  resolution: 'accepted',
+});
+```
+
+---
+
+### Nudge Events
+
+**`nudge:scheduled`** — Nudge scheduled for delivery
+```typescript
+intercom.emit('nudge:scheduled', userId, {
+  nudgeId: 'nudge-123',
+  deliveryTime: 1234567890,
+});
+```
+
+**`nudge:delivered`** — Nudge delivered to user
+```typescript
+intercom.emit('nudge:delivered', userId, {
+  nudgeId: 'nudge-123',
+  channel: 'discord',
+});
+```
+
+**`nudge:suppressed`** — Nudge suppressed (not delivered)
+```typescript
+intercom.emit('nudge:suppressed', userId, {
+  nudgeId: 'nudge-123',
+  reason: 'user_busy',
+});
+```
+
+## Examples
+
+### Event Logger
+
+```typescript
+const intercom = createIntercom();
+
+// Log all events to console
+intercom.onAny((event) => {
+  const timestamp = new Date(event.timestamp).toISOString();
+  console.log(`[${timestamp}] ${event.topic}:`, event.data);
+});
+```
+
+### Task Monitor
+
+```typescript
+const taskStats = { queued: 0, completed: 0, failed: 0 };
+
+intercom.on('task:queued', () => taskStats.queued++);
+intercom.on('task:completed', () => taskStats.completed++);
+intercom.on('task:failed', () => taskStats.failed++);
+
+setInterval(() => {
+  console.log('Task Stats:', taskStats);
+}, 10000);
+```
+
+### Agent Lifecycle Tracking
+
+```typescript
+const activeAgents = new Set<string>();
+
+intercom.on('agent:created', (event) => {
+  activeAgents.add(event.data.agentId as string);
+  console.log('Active agents:', activeAgents.size);
+});
+
+intercom.on('agent:dismissed', (event) => {
+  activeAgents.delete(event.data.agentId as string);
+  console.log('Active agents:', activeAgents.size);
+});
+```
+
+### Recent Activity Dashboard
+
+```typescript
+function showDashboard() {
+  const recent = intercom.recentAll(20);
+  
+  console.log('\n=== Recent Activity ===');
+  for (const event of recent) {
+    const time = new Date(event.timestamp).toLocaleTimeString();
+    console.log(`${time} [${event.topic}] ${event.userId}`);
+  }
+}
+
+setInterval(showDashboard, 5000);
+```
+
+## Best Practices
+
+1. **Always unsubscribe when done:**
+   ```typescript
+   const unsub = intercom.on('task:completed', handler);
+   
+   // Later...
+   unsub();
+   ```
+
+2. **Keep handlers lightweight:**
+   ```typescript
+   // Good: quick handler
+   intercom.on('task:completed', (event) => {
+     taskQueue.push(event.data.taskId);
+   });
+   
+   // Avoid: heavy processing in handler
+   intercom.on('task:completed', async (event) => {
+     await performExpensiveOperation(); // Don't do this
+   });
+   ```
+
+3. **Handle errors gracefully:**
+   ```typescript
+   intercom.on('agent:created', (event) => {
+     try {
+       // Handler logic
+     } catch (error) {
+       console.error('Handler error:', error);
+     }
+   });
+   ```
+
+4. **Use wildcard subscriptions sparingly:**
+   ```typescript
+   // Good: specific topic
+   intercom.on('task:completed', handler);
+   
+   // Use carefully: receives ALL events
+   intercom.onAny(handler);
+   ```
+
+5. **Include relevant context in event data:**
+   ```typescript
+   // Good: includes context
+   intercom.emit('task:completed', userId, {
+     taskId: 'task-123',
+     duration: 1234,
+     success: true,
+   });
+   
+   // Avoid: minimal context
+   intercom.emit('task:completed', userId, {});
+   ```

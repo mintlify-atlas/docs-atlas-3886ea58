@@ -1,0 +1,332 @@
+---
+title: '@tinyclaw/config'
+description: 'Persistent configuration management for Tiny Claw agents'
+---
+
+# @tinyclaw/config
+
+SQLite-backed, Zod-validated configuration management for Tiny Claw. Stores non-sensitive settings like provider preferences, channel configurations, and user preferences.
+
+## Installation
+
+```bash
+npm install @tinyclaw/config
+```
+
+## Main Exports
+
+### ConfigManager
+
+#### `new ConfigManager(config?: ConfigManagerConfig)`
+
+Create a new configuration manager instance.
+
+<ParamField path="config.cwd" type="string">
+  Override the config storage directory (defaults to `~/.tinyclaw/data/`)
+</ParamField>
+
+```typescript
+import { ConfigManager } from '@tinyclaw/config';
+
+const configManager = new ConfigManager({
+  cwd: '/custom/path/to/config',
+});
+```
+
+### Methods
+
+#### `get<V>(key: string, defaultValue?: V): V | undefined`
+
+Retrieve a config value by dot-notation key.
+
+```typescript
+const model = configManager.get('provider.default', 'kimi-k2.5:cloud');
+const theme = configManager.get<string>('ui.theme');
+```
+
+#### `has(key: string): boolean`
+
+Check if a config key exists.
+
+```typescript
+if (configManager.has('provider.primary')) {
+  console.log('Primary provider is configured');
+}
+```
+
+#### `set(key: string, value: unknown): void`
+
+Set a config value by dot-notation key.
+
+```typescript
+configManager.set('provider.default', 'deepseek-r1:cloud');
+configManager.set('ui.theme', 'dark');
+```
+
+#### `set(object: Record<string, unknown>): void`
+
+Set multiple values at once.
+
+```typescript
+configManager.set({
+  'provider.default': 'kimi-k2.5:cloud',
+  'ui.theme': 'dark',
+  'features.delegation': true,
+});
+```
+
+#### `delete(key: string): void`
+
+Delete a config key.
+
+```typescript
+configManager.delete('provider.primary');
+```
+
+#### `reset(...keys: string[]): void`
+
+Reset specific keys to their defaults.
+
+```typescript
+configManager.reset('provider.default', 'ui.theme');
+```
+
+#### `clear(): void`
+
+Clear all config and restore defaults.
+
+```typescript
+configManager.clear();
+```
+
+#### `close(): void`
+
+Close the underlying config engine.
+
+```typescript
+configManager.close();
+```
+
+### Properties
+
+#### `store: Record<string, unknown>`
+
+Get the full config snapshot.
+
+```typescript
+const allConfig = configManager.store;
+console.log(allConfig);
+```
+
+#### `size: number`
+
+Number of top-level config entries.
+
+```typescript
+console.log(`Config has ${configManager.size} entries`);
+```
+
+#### `path: string`
+
+Absolute path to the config database file.
+
+```typescript
+console.log(`Config stored at: ${configManager.path}`);
+```
+
+### Watchers
+
+#### `onDidChange<V>(key: string, callback: (newValue?: V, oldValue?: V) => void): () => void`
+
+Watch a specific key for changes. Returns an unsubscribe function.
+
+```typescript
+const unsubscribe = configManager.onDidChange(
+  'provider.default',
+  (newValue, oldValue) => {
+    console.log(`Provider changed from ${oldValue} to ${newValue}`);
+  }
+);
+
+// Later: unsubscribe to stop watching
+unsubscribe();
+```
+
+#### `onDidAnyChange(callback: (newValue?: Record<string, unknown>, oldValue?: Record<string, unknown>) => void): () => void`
+
+Watch the entire config for any change.
+
+```typescript
+const unsubscribe = configManager.onDidAnyChange((newValue, oldValue) => {
+  console.log('Config changed:', newValue);
+});
+
+// Later: unsubscribe to stop watching
+unsubscribe();
+```
+
+## Config Tools
+
+### `createConfigTools(configManager: ConfigManagerInterface): Tool[]`
+
+Create agent tools for config management.
+
+```typescript
+import { createConfigTools } from '@tinyclaw/config';
+
+const tools = createConfigTools(configManager);
+```
+
+**Generated Tools:**
+
+1. **config_get** - Get a config value
+   - `key: string` - Dot-notation key
+   - Returns: The config value or "not set"
+
+2. **config_set** - Set a config value
+   - `key: string` - Dot-notation key
+   - `value: unknown` - Value to set
+   - Returns: Confirmation message
+
+3. **config_reset** - Reset keys to defaults
+   - `keys: string[]` - Keys to reset
+   - Returns: Confirmation message
+
+## Config Schema
+
+### `TinyClawConfigSchema`
+
+Zod schema for config validation.
+
+```typescript
+import { TinyClawConfigSchema } from '@tinyclaw/config';
+
+const config = TinyClawConfigSchema.parse(rawConfig);
+```
+
+### `CONFIG_DEFAULTS`
+
+Default config values.
+
+```typescript
+import { CONFIG_DEFAULTS } from '@tinyclaw/config';
+
+console.log(CONFIG_DEFAULTS);
+```
+
+## Config Structure
+
+### `TinyClawConfigData`
+
+```typescript
+interface TinyClawConfigData {
+  provider: {
+    default: string;           // Default model tag
+    primary?: string;          // Primary provider plugin ID
+  };
+  
+  channels: {
+    web?: {
+      enabled: boolean;
+      port?: number;
+    };
+    discord?: {
+      enabled: boolean;
+      guildId?: string;
+      channelIds?: string[];
+    };
+  };
+  
+  features: {
+    delegation: boolean;       // Enable sub-agent delegation
+    memory: boolean;           // Enable adaptive memory
+    shield: boolean;           // Enable security enforcement
+    compaction: boolean;       // Enable history compaction
+  };
+  
+  plugins: {
+    enabled: string[];         // Enabled plugin package names
+  };
+  
+  owner?: {
+    userId: string;            // Owner userId
+    sessionTokenHash: string;  // SHA-256 hash of session token
+    claimedAt: number;         // Claim timestamp
+  };
+}
+```
+
+## Example Usage
+
+### Basic Configuration
+
+```typescript
+import { ConfigManager } from '@tinyclaw/config';
+
+const config = new ConfigManager();
+
+// Set provider
+config.set('provider.default', 'deepseek-r1:cloud');
+
+// Enable features
+config.set('features.delegation', true);
+config.set('features.memory', true);
+
+// Configure Discord channel
+config.set('channels.discord.enabled', true);
+config.set('channels.discord.guildId', '123456789');
+```
+
+### Watching for Changes
+
+```typescript
+import { ConfigManager } from '@tinyclaw/config';
+
+const config = new ConfigManager();
+
+// Watch for provider changes
+const unwatch = config.onDidChange(
+  'provider.default',
+  (newModel, oldModel) => {
+    console.log(`Switching from ${oldModel} to ${newModel}`);
+    // Trigger provider reload
+  }
+);
+
+// Later: cleanup
+unwatch();
+```
+
+### Using with Agent Context
+
+```typescript
+import { ConfigManager, createConfigTools } from '@tinyclaw/config';
+import { agentLoop } from '@tinyclaw/core';
+
+const configManager = new ConfigManager();
+const configTools = createConfigTools(configManager);
+
+const agentContext = {
+  db,
+  provider,
+  learning,
+  tools: [...otherTools, ...configTools],
+  configManager,
+  ownerId: configManager.get('owner.userId'),
+};
+
+await agentLoop("What's my current model?", "web:owner", agentContext);
+```
+
+## Security Notes
+
+- **Non-sensitive data only** - API keys and tokens belong in `@tinyclaw/secrets`
+- Config is stored in plain text SQLite
+- Owner authority is enforced at the tool level (owner-only tools)
+- Config paths are validated to prevent directory traversal
+
+## Related Packages
+
+- [@tinyclaw/types](/api/types) - Type definitions
+- [@tinyclaw/secrets](https://github.com/wgtechlabs/secrets-engine) - Encrypted secrets storage
+- [@tinyclaw/core](/api/core) - Core agent runtime

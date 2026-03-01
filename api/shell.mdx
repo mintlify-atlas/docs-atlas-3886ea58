@@ -1,0 +1,357 @@
+---
+title: '@tinyclaw/shell'
+description: 'Controlled shell execution with permission engine for Tiny Claw'
+---
+
+## Overview
+
+The `@tinyclaw/shell` package provides controlled shell command execution for Tiny Claw AI agents. It combines a permission engine with a shell executor to enforce safe command execution.
+
+### Safety Layers
+
+1. **Permission engine** — Allowlist + blocklist + approval store
+2. **Shield integration** — Runtime SHIELD.md threat evaluation
+3. **Owner authority** — Only the owner can run shell commands
+4. **Executor safety** — Timeout, output truncation, env filtering
+
+### Permission Model
+
+All commands are **DENIED** by default unless:
+
+- Matched by built-in safe allowlist (read-only commands like `ls`, `cat`, `git status`)
+- User-configured allowed commands/patterns
+- One-time owner approval (stored for future use)
+
+Even allowed commands are checked against a hardcoded blocklist of dangerous patterns that can never be bypassed.
+
+## Installation
+
+```bash
+bun add @tinyclaw/shell
+```
+
+## Usage
+
+### Basic Setup
+
+```typescript
+import { createShellEngine, createShellTools } from '@tinyclaw/shell';
+
+const shell = createShellEngine({
+  workingDirectory: '/path/to/project',
+  defaultTimeoutMs: 30000,
+});
+
+// Create agent tools for shell interaction
+const tools = createShellTools(shell);
+```
+
+### Running Commands
+
+```typescript
+// Execute a safe command (auto-allowed)
+const result = await shell.run('ls -la');
+console.log(result);
+
+// Execute with custom timeout
+const result2 = await shell.run('npm test', 60000); // 60 second timeout
+```
+
+### Permission Management
+
+```typescript
+// Check if a command would be allowed
+const check = shell.permissions.evaluate('rm -rf node_modules');
+console.log(check.decision); // 'allow' | 'deny' | 'require_approval'
+console.log(check.reason);
+
+// Approve a command (one-time)
+shell.permissions.approve('npm install', false);
+
+// Approve a command (persistent across sessions)
+shell.permissions.approve('npm install', true);
+
+// Add a custom allow pattern
+shell.permissions.addAllowPattern('make *');
+
+// List all approvals
+const approvals = shell.permissions.listApprovals();
+```
+
+### Cleanup
+
+```typescript
+shell.shutdown();
+```
+
+## API Reference
+
+### `createShellEngine(config?)`
+
+Create a shell engine that combines permission checks with execution.
+
+<ParamField path="config" type="ShellEngineConfig">
+  Configuration options.
+</ParamField>
+
+<ParamField path="config.workingDirectory" type="string">
+  Working directory for command execution. Defaults to `process.cwd()`.
+</ParamField>
+
+<ParamField path="config.defaultTimeoutMs" type="number" default="30000">
+  Default timeout in milliseconds.
+</ParamField>
+
+<ParamField path="config.maxTimeoutMs" type="number" default="120000">
+  Maximum allowed timeout in milliseconds.
+</ParamField>
+
+<ParamField path="config.maxOutputBytes" type="number" default="10240">
+  Maximum output size in bytes before truncation (10 KB).
+</ParamField>
+
+<ParamField path="config.allowPatterns" type="string[]">
+  Additional allow patterns from user config.
+</ParamField>
+
+<ParamField path="config.savedApprovals" type="ShellApproval[]">
+  Previously persisted approvals to restore.
+</ParamField>
+
+<ParamField path="config.extraEnv" type="Record<string, string>">
+  Additional environment variables to pass to commands.
+</ParamField>
+
+**Returns:** `ShellEngine`
+
+---
+
+### `ShellEngine`
+
+#### `run(command, timeoutMs?)`
+
+Execute a command with full permission checks.
+
+<ParamField path="command" type="string" required>
+  The shell command to execute.
+</ParamField>
+
+<ParamField path="timeoutMs" type="number">
+  Override timeout in milliseconds (max: 120000).
+</ParamField>
+
+<ResponseField name="result" type="Promise<string>">
+  Formatted result string suitable for the agent.
+</ResponseField>
+
+---
+
+#### `shutdown()`
+
+Shutdown and clean up resources. Clears all session (non-persistent) approvals.
+
+---
+
+### `createShellTools(shell)`
+
+Create agent tools for shell interaction.
+
+<ParamField path="shell" type="ShellEngine" required>
+  The shell engine instance.
+</ParamField>
+
+**Returns:** `Tool[]` - Array containing 3 tools:
+- `run_shell` — Execute a shell command
+- `shell_approve` — Approve a pending command
+- `shell_allow` — Add/remove/list allow patterns
+
+---
+
+### `ShellPermissionEngine`
+
+Permission evaluation and approval management.
+
+#### `evaluate(command)`
+
+Evaluate whether a command is allowed.
+
+<ParamField path="command" type="string" required>
+  The command to evaluate.
+</ParamField>
+
+<ResponseField name="result" type="ShellPermissionResult">
+  Permission decision with reason and matched rule.
+</ResponseField>
+
+```typescript
+interface ShellPermissionResult {
+  decision: 'allow' | 'deny' | 'require_approval';
+  reason: string;
+  matchedRule?: string; // For audit trail
+}
+```
+
+---
+
+#### `approve(command, persistent?)`
+
+Record an owner approval for a command.
+
+<ParamField path="command" type="string" required>
+  The exact command to approve.
+</ParamField>
+
+<ParamField path="persistent" type="boolean" default="false">
+  Whether the approval persists across sessions.
+</ParamField>
+
+---
+
+#### `revoke(command)`
+
+Revoke a previously granted approval.
+
+<ParamField path="command" type="string" required>
+  The command to revoke.
+</ParamField>
+
+<ResponseField name="removed" type="boolean">
+  Whether an approval was removed.
+</ResponseField>
+
+---
+
+#### `listApprovals()`
+
+List all current approvals.
+
+<ResponseField name="approvals" type="ShellApproval[]">
+  Array of approval records.
+</ResponseField>
+
+```typescript
+interface ShellApproval {
+  command: string;
+  persistent: boolean;
+  approvedAt: number; // Unix timestamp
+}
+```
+
+---
+
+#### `addAllowPattern(pattern)`
+
+Add a command or glob pattern to the user allowlist.
+
+<ParamField path="pattern" type="string" required>
+  Glob pattern like `"make *"` or exact command.
+</ParamField>
+
+---
+
+#### `removeAllowPattern(pattern)`
+
+Remove a pattern from the user allowlist.
+
+<ParamField path="pattern" type="string" required>
+  The pattern to remove.
+</ParamField>
+
+<ResponseField name="removed" type="boolean">
+  Whether the pattern was found and removed.
+</ResponseField>
+
+---
+
+### `ShellResult`
+
+Result object from the executor.
+
+<ResponseField name="success" type="boolean">
+  Whether the command completed successfully (exit code 0).
+</ResponseField>
+
+<ResponseField name="stdout" type="string">
+  Combined stdout output (truncated if necessary).
+</ResponseField>
+
+<ResponseField name="stderr" type="string">
+  Combined stderr output (truncated if necessary).
+</ResponseField>
+
+<ResponseField name="exitCode" type="number">
+  Process exit code.
+</ResponseField>
+
+<ResponseField name="durationMs" type="number">
+  Execution duration in milliseconds.
+</ResponseField>
+
+<ResponseField name="timedOut" type="boolean">
+  Whether the command was killed due to timeout.
+</ResponseField>
+
+<ResponseField name="truncated" type="boolean">
+  Whether stdout was truncated.
+</ResponseField>
+
+## Built-in Safe Commands
+
+The following commands are auto-allowed without approval:
+
+- **Filesystem reading:** `ls`, `cat`, `head`, `tail`, `find`, `tree`, `stat`
+- **Text processing:** `grep`, `awk`, `sed`, `sort`, `uniq`, `cut`, `diff`
+- **System info:** `echo`, `pwd`, `whoami`, `hostname`, `uname`, `date`, `env`
+- **Package managers:** `npm ls`, `yarn info`, `pip list`, `cargo tree`
+- **Git (read-only):** `git status`, `git log`, `git diff`, `git show`, `git branch`
+- **Process info:** `ps`, `top`, `htop`, `lsof`
+
+## Dangerous Patterns (Always Blocked)
+
+These patterns are **always blocked** regardless of allowlist:
+
+- Destructive operations: `rm -rf /`, `mkfs`, `dd if=/dev/*`
+- Privilege escalation: `sudo`, `su`, `chmod 777`
+- Code injection: `eval`, `exec`, `source`, `| sh`
+- Network exfiltration: `nc -l`, `ncat`, `/dev/tcp/`
+- System modification: `shutdown`, `reboot`, `systemctl`
+- Credential access: `export`, `.env`, `ssh`, `scp`
+
+## Environment Variable Filtering
+
+Sensitive environment variables are automatically stripped before passing to child processes:
+
+- API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`
+- Database credentials: `DATABASE_URL`, `DB_PASSWORD`, `REDIS_PASSWORD`
+- Generic secrets: Any var containing `_KEY`, `_SECRET`, `_TOKEN`, `_PASSWORD`
+
+## Examples
+
+### Safe Command (Auto-allowed)
+
+```typescript
+const result = await shell.run('ls -la');
+// Executes immediately
+```
+
+### Unapproved Command
+
+```typescript
+const result = await shell.run('npm install lodash');
+// Returns: "This command requires owner approval before it can run..."
+```
+
+### Approve and Run
+
+```typescript
+shell.permissions.approve('npm install lodash', true);
+const result = await shell.run('npm install lodash');
+// Now executes
+```
+
+### Dangerous Command
+
+```typescript
+const result = await shell.run('sudo rm -rf /');
+// Returns: "Shell command denied: Recursive delete of root filesystem"
+```

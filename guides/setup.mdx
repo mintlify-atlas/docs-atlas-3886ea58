@@ -1,0 +1,230 @@
+---
+title: Setup Guide
+description: Complete walkthrough of the Tiny Claw setup wizard for first-time configuration
+icon: sparkles
+---
+
+The setup wizard walks you through first-time configuration of your Tiny Claw instance. It handles API key setup, provider configuration, soul seed generation, and two-factor authentication.
+
+## Running Setup
+
+Tiny Claw offers two setup modes:
+
+<CodeGroup>
+```bash CLI Wizard (Recommended)
+tinyclaw setup
+```
+
+```bash Web-Based Setup
+tinyclaw setup --web
+```
+</CodeGroup>
+
+The CLI wizard provides an interactive terminal experience using beautiful prompts. The web mode launches a browser-based setup flow at `http://localhost:3000/setup`.
+
+## Setup Workflow
+
+<Steps>
+
+### Security Acknowledgment
+
+First, you'll review important security information about running an AI agent:
+
+- Tiny Claw is provided under the **MIT License** with no warranty
+- You accept responsibility for the agent's actions
+- You'll follow recommended safety practices
+
+You must explicitly accept these terms to continue.
+
+### Provider Configuration
+
+**Ollama Cloud** is the default provider that powers Tiny Claw. It's free to sign up with a generous free tier.
+
+<Steps>
+<Step title="Get your API key">
+  1. Go to [https://ollama.com](https://ollama.com) and create a free account
+  2. Navigate to **Account Settings → API Keys**
+  3. Generate a new key and copy it
+</Step>
+
+<Step title="Enter the key">
+  Paste your API key when prompted. The setup wizard will:
+  - Validate the key by testing connectivity
+  - Store it securely in the secrets engine (encrypted with AES-256-GCM)
+  - Configure the default model and base URL
+</Step>
+</Steps>
+
+The built-in model and base URL are hardcoded during setup. Once your agent is running, it can configure everything else by itself.
+
+### Soul Seed Generation
+
+Your Tiny Claw's personality is generated from a **soul seed** — a single number that deterministically creates:
+
+- Character traits (suggested name, creature type, catchphrase)
+- Big Five personality dimensions
+- Communication style (verbosity, formality, emoji frequency)
+- Values, quirks, and preferences
+
+<Tabs>
+  <Tab title="Random Seed">
+    Leave the input blank and Tiny Claw will generate a random seed for you.
+    
+    ```bash
+    Enter a soul seed (leave blank for random)
+    › [press Enter]
+    ```
+  </Tab>
+  
+  <Tab title="Custom Seed">
+    Enter a specific number to get a reproducible personality:
+    
+    ```bash
+    Enter a soul seed (leave blank for random)
+    › 8675309
+    ```
+    
+    The same seed always produces the same personality — share your seed with others so they can create a companion just like yours!
+  </Tab>
+</Tabs>
+
+#### Preview and Regenerate
+
+After entering a seed, you'll see a preview:
+
+```
+Seed     : 8675309
+Name     : Pixel
+Values   : curiosity, loyalty, creativity
+```
+
+You can:
+- **Keep** this personality and proceed
+- **Regenerate** to roll a new random seed
+- **Enter a different seed** to try a specific number
+
+<Note>
+Once set, the soul seed is **permanent** and cannot be changed. Choose carefully!
+</Note>
+
+### Two-Factor Authentication
+
+Tiny Claw requires TOTP (Time-based One-Time Password) authentication for the web dashboard.
+
+<Steps>
+<Step title="Scan QR code">
+  A QR code will appear in your terminal. Scan it with your authenticator app:
+  - Google Authenticator
+  - Authy
+  - 1Password
+  - Any TOTP-compatible app
+</Step>
+
+<Step title="Enter verification code">
+  Input the 6-digit code from your authenticator app to verify setup.
+</Step>
+</Steps>
+
+Alternatively, you can manually enter the TOTP secret instead of scanning the QR code.
+
+### Recovery Credentials
+
+The wizard generates **recovery credentials** for account access if you lose your authenticator:
+
+<Tabs>
+  <Tab title="Recovery Token">
+    A long alphanumeric token that can reset your 2FA.
+    
+    ```
+    Recovery Token:
+    a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6...
+    ```
+    
+    <Warning>
+    Store this in a secure location. Anyone with this token can access your Tiny Claw instance.
+    </Warning>
+  </Tab>
+  
+  <Tab title="Backup Codes">
+    Eight single-use codes for emergency access:
+    
+    ```
+    Backup Codes:
+     1. abc-def-ghi
+     2. jkl-mno-pqr
+     3. stu-vwx-yz1
+     ...
+    ```
+    
+    Each code can only be used once. Keep them safe — you won't see them again.
+  </Tab>
+</Tabs>
+
+#### Saving Credentials
+
+The wizard offers to copy credentials to your clipboard:
+
+- **Copy all at once**: Recovery token + all backup codes → clipboard
+- **Copy one at a time**: Recovery token first, then backup codes
+
+After copying, **paste them into a secure password manager or encrypted note**.
+
+<Warning>
+The terminal is cleared after setup completes, so you won't be able to scroll back and see these credentials again.
+</Warning>
+
+### Configuration Saved
+
+Once all steps are complete, the wizard:
+
+1. Stores the provider config in the config engine (SQLite-backed)
+2. Persists the soul seed
+3. Saves owner authority (TOTP secret, backup code hashes, recovery token hash)
+4. Clears the terminal for security
+
+</Steps>
+
+## Reconfiguring
+
+If you've already run setup, running `tinyclaw setup` again will:
+
+1. Show your existing configuration (provider, model, soul seed, personality preview)
+2. Ask if you want to reconfigure
+3. Walk you through setup again if you confirm
+
+<CodeGroup>
+```bash
+$ tinyclaw setup
+
+Existing configuration found:
+  Provider : Ollama Cloud
+  Model    : qwen2.5:32b-instruct
+  Base URL : https://ollama.com/api
+  API Key  : ••••••••  (stored in secrets-engine)
+
+  Soul seed:
+  Seed     : 8675309
+  Name     : Pixel
+  Values   : curiosity, loyalty, creativity
+
+Do you want to reconfigure? [y/N]
+```
+</CodeGroup>
+
+## After Setup
+
+Once setup is complete:
+
+```bash
+tinyclaw start
+```
+
+Your Tiny Claw agent will boot with:
+- The configured provider and model
+- Your unique personality (from the soul seed)
+- Two-factor authentication enabled
+- All credentials securely stored
+
+<Card title="Next Steps" icon="arrow-right" href="/guides/cli-commands">
+  Learn about all available CLI commands
+</Card>

@@ -1,0 +1,238 @@
+---
+title: Contributing Guide
+description: Learn how to contribute to Tiny Claw - from setup to submitting pull requests
+icon: code-pull-request
+---
+
+# Contributing to Tiny Claw
+
+Thanks for your interest in contributing to Tiny Claw! Every contribution - code, docs, bug reports, or ideas - helps make AI companions more accessible to everyone.
+
+<Note>
+  Please read our [Code of Conduct](/community/code-of-conduct) before getting started.
+</Note>
+
+## Contributor License Agreement (CLA)
+
+By submitting a pull request, you agree to our Contributor License Agreement. The CLA is required because Tiny Claw uses a **dual-licensing** model (GPL-3.0 + Commercial). First-time contributors will be prompted to sign the CLA automatically via [CLA Assistant](https://cla-assistant.io/) when opening a PR.
+
+## Getting Started
+
+### Prerequisites
+
+<CardGroup cols={3}>
+  <Card title="Bun" icon="b">
+    Latest stable version
+  </Card>
+  <Card title="Git" icon="git-alt">
+    Version control
+  </Card>
+  <Card title="GitHub Account" icon="github">
+    For contributions
+  </Card>
+</CardGroup>
+
+### Fork & Clone
+
+```bash
+# Fork the repo on GitHub first, then:
+git clone https://github.com/YOUR_USERNAME/tinyclaw.git
+cd tinyclaw
+git remote add upstream https://github.com/warengonzaga/tinyclaw.git
+bun install
+```
+
+### Run in Development
+
+```bash
+bun dev        # Start the CLI in development mode
+bun dev:ui     # Start the web UI in development mode
+bun build      # Build all packages
+bun test       # Run the full test suite
+```
+
+## Project Structure
+
+Tiny Claw is a **Bun workspace monorepo**. The core stays tiny - everything else is a plugin.
+
+```
+tinyclaw/
+  packages/        Core library packages (tiny, focused, no circular deps)
+  plugins/         Plugin packages (channels, providers, tools)
+  src/cli/         CLI entry point
+  src/web/         Web UI (Svelte 5)
+```
+
+<Tip>
+  See the [Architecture](/concepts/architecture) documentation for the full architecture overview.
+</Tip>
+
+## Development Workflow
+
+<Steps>
+  <Step title="Create an issue first">
+    Describe what you want to work on before writing code. This helps avoid duplicate work and ensures alignment with project goals.
+  </Step>
+  
+  <Step title="Sync with upstream">
+    Keep your fork current:
+    ```bash
+    git fetch upstream && git merge upstream/dev
+    ```
+  </Step>
+  
+  <Step title="Create a branch">
+    Create a branch from `dev` using one of these prefixes:
+    - `feature/*` - new functionality
+    - `fix/*` - bug fixes
+    - `docs/*` - documentation changes
+    - `refactor/*` - code restructuring without behavior changes
+  </Step>
+  
+  <Step title="Make your changes">
+    Write code, add tests, update docs as needed.
+  </Step>
+  
+  <Step title="Verify locally">
+    ```bash
+    bun build     # Ensure it compiles
+    bun test      # Ensure tests pass
+    ```
+  </Step>
+  
+  <Step title="Submit a PR">
+    Target the **`dev`** branch (never `main`).
+  </Step>
+</Steps>
+
+## Commit Convention
+
+This project follows the **[Clean Commit](https://github.com/wgtechlabs/clean-commit)** convention.
+
+| Emoji | Type | What it covers |
+|:-----:|------|----------------|
+| 📦 | `new` | Adding new features, files, or capabilities |
+| 🔧 | `update` | Changing existing code, refactoring, improvements |
+| 🗑️ | `remove` | Removing code, files, features, or dependencies |
+| 🔒 | `security` | Security fixes, patches, vulnerability resolutions |
+| ⚙️ | `setup` | Project configs, CI/CD, tooling, build systems |
+| ☕ | `chore` | Maintenance tasks, dependency updates, housekeeping |
+| 🧪 | `test` | Adding, updating, or fixing tests |
+| 📖 | `docs` | Documentation changes and updates |
+| 🚀 | `release` | Version releases and release preparation |
+
+### Examples
+
+```
+📦 new (core): add conversation memory system
+🔧 update (api): improve error handling
+🧪 test (memory): add unit tests for temporal decay
+📖 docs: update installation instructions
+```
+
+<Info>
+  **Rules:** lowercase type, present tense, no trailing period, under 72 characters.
+</Info>
+
+## Pull Request Guidelines
+
+### Before Submitting
+
+<AccordionGroup>
+  <Accordion title="Checklist">
+    - [ ] An issue exists and is referenced in the PR description (e.g., `Closes #42`)
+    - [ ] PR targets the **`dev`** branch
+    - [ ] All commits follow the [Clean Commit](https://github.com/wgtechlabs/clean-commit) convention
+    - [ ] Code builds successfully (`bun build`)
+    - [ ] Tests pass (`bun test`)
+    - [ ] Documentation is updated (if applicable)
+    - [ ] CLA is signed
+  </Accordion>
+</AccordionGroup>
+
+### PR Description
+
+Include a clear summary of what changed and why. Reference the issue number. If the change is visual, include screenshots or recordings.
+
+### Review Process
+
+- A maintainer will review your PR and may request changes.
+- Please respond to feedback promptly - stale PRs may be closed after 30 days of inactivity.
+- Once approved, a maintainer will merge your PR.
+
+## Writing Tests
+
+Tests live in `tests/` directories alongside each package's `src/`. We use [Bun's built-in test runner](https://bun.sh/docs/cli/test).
+
+```bash
+bun test                          # Run all tests
+bun test packages/memory          # Run tests for a specific package
+bun test --watch                  # Run in watch mode
+```
+
+When contributing code, please:
+
+- Add tests for new features and bug fixes.
+- Keep tests focused - one behavior per test.
+- Use descriptive test names that explain *what* is being tested.
+
+## Code Style
+
+<CardGroup cols={2}>
+  <Card title="TypeScript" icon="code">
+    Use strong typing - avoid `any`
+  </Card>
+  <Card title="Consistency" icon="arrows-repeat">
+    Follow existing patterns and conventions
+  </Card>
+  <Card title="Simplicity" icon="feather">
+    Keep functions small and focused
+  </Card>
+  <Card title="Error Handling" icon="shield-check">
+    Handle errors gracefully - don't swallow exceptions
+  </Card>
+</CardGroup>
+
+<Warning>
+  No circular dependencies between packages.
+</Warning>
+
+## Reporting Bugs
+
+[Open a new issue](https://github.com/warengonzaga/tinyclaw/issues/new/choose) and include:
+
+- A clear, descriptive title.
+- Steps to reproduce the issue.
+- Expected vs. actual behavior.
+- Your environment (OS, Bun version, Node version if applicable).
+- Relevant logs or error messages.
+
+<Tip>
+  Please search [existing issues](https://github.com/warengonzaga/tinyclaw/issues) first to avoid duplicates.
+</Tip>
+
+## Suggesting Features
+
+Feature ideas are welcome! [Open an issue](https://github.com/warengonzaga/tinyclaw/issues/new/choose) with:
+
+- A clear description of the problem the feature solves.
+- Your proposed solution or approach.
+- Any alternatives you've considered.
+
+## Getting Help
+
+<CardGroup cols={3}>
+  <Card title="Documentation" icon="book" href="/introduction">
+    Check the docs for architecture and design info
+  </Card>
+  <Card title="Issues & Discussions" icon="comments" href="https://github.com/warengonzaga/tinyclaw/discussions">
+    Browse existing conversations
+  </Card>
+  <Card title="Follow on X" icon="x-twitter" href="https://x.com/TinyClawAI">
+    Get updates from @TinyClawAI and @warengonzaga
+  </Card>
+</CardGroup>
+
+---
+
+Made with love by the Tiny Claw community

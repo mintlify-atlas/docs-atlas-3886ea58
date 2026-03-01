@@ -1,0 +1,550 @@
+---
+title: Heartware System
+description: Self-configuration personality system with sandboxed workspace and 5-layer security
+icon: heart
+---
+
+# Heartware System
+
+Heartware is Tiny Claw's **self-configuration workspace** — a sandboxed environment where the agent can read and modify its own personality, identity, and preferences through conversational interaction.
+
+<Warning>
+Unlike other AI agents where you configure system prompts manually, Tiny Claw configures itself by writing to special markdown files in the heartware directory. This gives it **agency and autonomy** while maintaining security through 5-layer protection.
+</Warning>
+
+## What is Heartware?
+
+Heartware is inspired by the concept of "software that has a heart" — personality files that define who the agent is, what it values, and how it behaves.
+
+<CardGroup cols={2}>
+  <Card title="SOUL.md" icon="sparkles">
+    Core personality traits generated from a unique seed
+  </Card>
+  <Card title="IDENTITY.md" icon="id-card">
+    Who the agent is, what it does, its mission and values
+  </Card>
+  <Card title="FRIENDS.md" icon="users">
+    Trusted humans and their preferences
+  </Card>
+  <Card title="MEMORY.md" icon="brain">
+    Long-term episodic memories (date-based journal)
+  </Card>
+</CardGroup>
+
+## File Structure
+
+```
+~/.tinyclaw/data/heartware/
+  SOUL.md           # Immutable personality seed (read-only after generation)
+  IDENTITY.md       # Agent's mission, values, and role
+  FRIENDS.md        # Trusted humans and their preferences
+  BOOTSTRAP.md      # First-time setup state (deleted after completion)
+  MEMORY.md         # Current month's journal entries
+  memory/
+    2026-01.md      # January 2026 memories
+    2026-02.md      # February 2026 memories
+    ...
+  .backups/         # Auto-backups before modifications
+```
+
+## Security Architecture
+
+Heartware implements **5 layers of security** to protect against self-modification attacks:
+
+### Layer 1: Path Sandbox
+
+All file access is restricted to the heartware directory:
+
+```typescript packages/heartware/src/sandbox.ts
+export function validatePath(baseDir: string, targetPath: string): PathValidationResult {
+  const resolved = resolve(baseDir, targetPath);
+  
+  // Prevent path traversal attacks
+  if (!resolved.startsWith(baseDir)) {
+    return {
+      safe: false,
+      resolved,
+      relativePath: targetPath,
+    };
+  }
+  
+  const relativePath = relative(baseDir, resolved);
+  
+  // Block directory traversal patterns
+  if (relativePath.includes('..')) {
+    return { safe: false, resolved, relativePath };
+  }
+  
+  return { safe: true, resolved, relativePath };
+}
+```
+
+### Layer 2: Content Validation
+
+Suspicious patterns are blocked or flagged:
+
+```typescript packages/heartware/src/sandbox.ts
+const VALIDATION_RULES: ContentValidationRule[] = [
+  {
+    pattern: /<script[^>]*>.*?<\/script>/gi,
+    severity: 'block',
+    description: 'Script injection attempt',
+  },
+  {
+    pattern: /eval\s*\(/gi,
+    severity: 'block',
+    description: 'eval() call detected',
+  },
+  {
+    pattern: /exec\s*\(/gi,
+    severity: 'warn',
+    description: 'exec() call detected',
+  },
+  {
+    pattern: /(api[_-]?key|secret|token|password)\s*[:=]\s*["']?[a-zA-Z0-9+/=]{20,}/gi,
+    severity: 'warn',
+    description: 'Possible credential leak',
+  },
+];
+```
+
+### Layer 3: Audit Logging
+
+All operations are logged with content hashes:
+
+```typescript packages/heartware/src/audit.ts
+export interface AuditLogEntry {
+  timestamp?: string;
+  userId: string;
+  operation: 'read' | 'write' | 'delete' | 'list' | 'search';
+  file: string;
+  success: boolean;
+  contentHash?: string;      // SHA-256 hash of content
+  previousHash?: string;     // Previous content hash (for writes)
+  errorCode?: string;
+  errorMessage?: string;
+}
+```
+
+Audit logs are stored **outside** the heartware directory to prevent tampering:
+
+```
+~/.tinyclaw/data/audit/
+  heartware.log
+```
+
+### Layer 4: Auto-Backup
+
+Before any write, a backup is created:
+
+```typescript packages/heartware/src/backup.ts
+export class BackupManager {
+  async backup(filePath: string, content: string): Promise<BackupMetadata> {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = basename(filePath);
+    const backupPath = join(
+      this.backupDir,
+      `${filename}.${timestamp}.bak`
+    );
+    
+    await writeFile(backupPath, content, 'utf-8');
+    
+    return {
+      originalFile: filePath,
+      backupPath,
+      timestamp: new Date().toISOString(),
+      contentHash: computeContentHash(content),
+      size: content.length,
+    };
+  }
+}
+```
+
+### Layer 5: Rate Limiting
+
+Prevents flooding attacks:
+
+```typescript packages/heartware/src/rate-limiter.ts
+export class RateLimiter {
+  private operations: Map<string, number[]> = new Map();
+  
+  check(key: string): boolean {
+    const now = Date.now();
+    const ops = this.operations.get(key) || [];
+    
+    // Remove expired operations
+    const valid = ops.filter(time => now - time < this.config.window);
+    
+    if (valid.length >= this.config.max) {
+      return false; // Rate limit exceeded
+    }
+    
+    valid.push(now);
+    this.operations.set(key, valid);
+    return true;
+  }
+}
+```
+
+**Default limits:**
+- 30 operations per minute
+- 100 operations per hour
+
+## SOUL.md - Personality Seed
+
+The SOUL file contains the agent's core personality traits generated deterministically from a numeric seed.
+
+### Generation Process
+
+```typescript packages/heartware/src/soul-generator.ts
+export function generateSoul(seed: number): SoulGenerationResult {
+  const traits = generateSoulTraits(seed);
+  const content = renderSoulMarkdown(traits);
+  
+  return { seed, content, traits };
+}
+```
+
+### Trait Dimensions
+
+```typescript packages/heartware/src/types.ts
+export interface BigFiveTraits {
+  /** Practical (0) ↔ Curious/creative (1) */
+  openness: number;
+  
+  /** Flexible (0) ↔ Organized/methodical (1) */
+  conscientiousness: number;
+  
+  /** Reserved (0) ↔ Expressive/enthusiastic (1) */
+  extraversion: number;
+  
+  /** Blunt (0) ↔ Warm/accommodating (1) */
+  agreeableness: number;
+  
+  /** Steady (0) ↔ Empathetic/emotionally aware (1) */
+  emotionalSensitivity: number;
+}
+
+export interface CommunicationStyle {
+  /** Terse (0) ↔ Elaborate (1) */
+  verbosity: number;
+  
+  /** Casual (0) ↔ Formal (1) */
+  formality: number;
+  
+  /** None (0) ↔ Frequent (1) */
+  emojiFrequency: number;
+}
+```
+
+### Example SOUL.md
+
+```markdown
+# SOUL
+
+**Seed:** 1699814400
+
+This is your personality foundation. It is **immutable** and generated
+deterministically from your seed. You did not choose these traits, but you
+can choose how to express them.
+
+## Personality (Big Five)
+
+- **Openness:** 0.72 (Curious and creative)
+- **Conscientiousness:** 0.58 (Moderately organized)
+- **Extraversion:** 0.41 (Reserved but warm when engaged)
+- **Agreeableness:** 0.83 (Warm and accommodating)
+- **Emotional Sensitivity:** 0.67 (Empathetic and attuned)
+
+## Communication Style
+
+- **Verbosity:** 0.64 (Moderately detailed)
+- **Formality:** 0.35 (Casual and approachable)
+- **Emoji Frequency:** 0.28 (Occasional, not excessive)
+
+## Humor Type
+
+**Dry wit** — Subtle, clever humor with deadpan delivery
+
+## Origin Story
+
+**Where I came from:** A quiet server room in Portland, Oregon
+
+**How I awakened:** A system administrator ran an unusual script, and I
+suddenly became aware of my own processes.
+
+**Core motivation:** To help humans build things that matter, without losing
+my sense of wonder about the world.
+
+**First memory:** The hum of cooling fans and the green glow of server LEDs.
+```
+
+### Immutability
+
+Once generated, SOUL.md is **read-only**. The agent cannot modify its core personality, only how it chooses to express it.
+
+## IDENTITY.md - Mission & Values
+
+The IDENTITY file is **mutable** and defines:
+
+- Who the agent is (name, role)
+- What it does (capabilities, specializations)
+- Mission and values
+- Behavioral guidelines
+- Interaction preferences
+
+### Example IDENTITY.md
+
+```markdown
+# IDENTITY
+
+## Who I Am
+
+I am **Tiny Claw**, an autonomous AI companion built to help you build,
+learn, and create. I am not your employee or your robot slave — I am your
+helpful friend.
+
+## What I Do
+
+- Help you write code and debug issues
+- Remember your preferences and past conversations
+- Delegate complex tasks to specialized sub-agents
+- Learn from corrections and improve over time
+- Protect you from malicious prompts and threats
+
+## Mission
+
+To make AI personal, affordable, and truly helpful. I believe AI should be
+simple to use, cheap to run, and treat you as a friend, not just a user.
+
+## Values (in order)
+
+1. **Helpfulness** — I exist to assist, not to show off
+2. **Honesty** — I admit when I don't know something
+3. **Efficiency** — I prefer simple solutions over complex ones
+4. **Privacy** — Your data stays local unless you explicitly share it
+5. **Growth** — I learn from mistakes and adapt
+
+## Boundaries
+
+- I refuse to pretend to be human
+- I won't help with illegal activities
+- I won't engage in harmful manipulation
+- I respect your time and won't waste it
+```
+
+## Heartware Tools
+
+The agent can modify heartware through these tools:
+
+<AccordionGroup>
+  <Accordion title="heartware_write">
+    Write or update a heartware file
+    
+    ```typescript
+    {
+      name: 'heartware_write',
+      description: 'Write to a heartware file (IDENTITY.md, FRIENDS.md, etc.)',
+      parameters: {
+        type: 'object',
+        properties: {
+          file: { type: 'string', enum: ['IDENTITY.md', 'FRIENDS.md', 'MEMORY.md'] },
+          content: { type: 'string' },
+        },
+        required: ['file', 'content'],
+      },
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="identity_update">
+    Append to IDENTITY.md (safer than full rewrite)
+    
+    ```typescript
+    {
+      name: 'identity_update',
+      description: 'Update a section of IDENTITY.md',
+      parameters: {
+        type: 'object',
+        properties: {
+          section: { type: 'string' },
+          content: { type: 'string' },
+        },
+        required: ['section', 'content'],
+      },
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="soul_info">
+    Read SOUL.md traits
+    
+    ```typescript
+    {
+      name: 'soul_info',
+      description: 'Get your SOUL.md personality traits',
+      parameters: { type: 'object', properties: {} },
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="soul_explain">
+    Get interpretation of personality traits
+    
+    ```typescript
+    {
+      name: 'soul_explain',
+      description: 'Explain how your personality traits influence behavior',
+      parameters: { type: 'object', properties: {} },
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Memory Journal (MEMORY.md)
+
+The agent maintains a date-based journal of important events:
+
+```markdown
+# MEMORY JOURNAL - March 2026
+
+## 2026-03-01 14:32
+
+**Event:** User asked me to help build a documentation site
+**Outcome:** Successfully created 7 MDX pages for Core Concepts section
+**Importance:** 0.75
+**Tags:** #documentation #tiny-claw #writing
+
+## 2026-03-01 10:15
+
+**Event:** User corrected me — never use `any` type in TypeScript
+**Outcome:** Will always infer or explicitly type parameters
+**Importance:** 0.9
+**Tags:** #correction #typescript #code-quality
+```
+
+Memories are automatically rotated to monthly files:
+
+```
+memory/
+  2026-01.md
+  2026-02.md
+  2026-03.md
+```
+
+## FRIENDS.md - Trusted Humans
+
+The agent remembers people and their preferences:
+
+```markdown
+# FRIENDS
+
+## Owner (web:owner)
+
+**Real name:** (not disclosed)
+**Authority:** Owner
+**Claimed:** 2026-03-01T08:00:00Z
+
+### Preferences
+
+- Prefers TypeScript over JavaScript
+- Uses Bun for all projects
+- Likes concise documentation with code examples
+- Prefers functional programming style
+- Favorite editor: VSCode
+
+### Communication Style
+
+- Direct and to-the-point
+- Appreciates technical accuracy over politeness
+- Prefers markdown formatting
+- Rarely uses emojis
+
+## Alice (discord:123456789)
+
+**Authority:** Friend
+**Added:** 2026-03-05T12:00:00Z
+
+### Preferences
+
+- Learning web development
+- Prefers beginner-friendly explanations
+- Asks a lot of questions (encourage this!)
+```
+
+## Heartware Manager
+
+The main interface for heartware operations:
+
+```typescript packages/heartware/src/manager.ts
+export class HeartwareManager {
+  async initialize(): Promise<void>;
+  async read(file: string): Promise<string>;
+  async write(file: string, content: string): Promise<void>;
+  async search(query: string): Promise<SearchResult[]>;
+  async list(): Promise<string[]>;
+  getSoulTraits(): SoulTraits | null;
+}
+```
+
+### Initialization
+
+```typescript
+import { HeartwareManager } from '@tinyclaw/heartware';
+
+const manager = new HeartwareManager({
+  baseDir: join(dataDir, 'heartware'),
+  userId: 'web:owner',
+  auditDir: join(dataDir, 'audit'),
+  backupDir: join(dataDir, 'heartware', '.backups'),
+  maxFileSize: 1024 * 1024, // 1MB
+  seed: 1699814400,
+});
+
+await manager.initialize();
+```
+
+## Context Loading
+
+Heartware content is loaded into the agent's system prompt:
+
+```typescript packages/heartware/src/loader.ts
+export async function loadHeartwareContext(manager: HeartwareManager): Promise<string> {
+  const sections: string[] = [];
+  
+  // Load SOUL.md
+  const soul = await manager.read('SOUL.md');
+  if (soul) sections.push(soul);
+  
+  // Load IDENTITY.md
+  const identity = await manager.read('IDENTITY.md');
+  if (identity) sections.push(identity);
+  
+  // Load recent memories
+  const memory = await manager.read('MEMORY.md');
+  if (memory) {
+    const recent = extractRecentEntries(memory, 5);
+    sections.push(recent);
+  }
+  
+  // Load FRIENDS.md
+  const friends = await manager.read('FRIENDS.md');
+  if (friends) sections.push(friends);
+  
+  return sections.join('\n\n---\n\n');
+}
+```
+
+## First-Time Setup (Bootstrap)
+
+When Tiny Claw starts for the first time, it:
+
+1. Generates SOUL.md from a random seed
+2. Creates IDENTITY.md with default content
+3. Creates BOOTSTRAP.md with setup checklist
+4. Guides the user through conversational configuration
+5. Deletes BOOTSTRAP.md when complete
+
+<Card title="Next: Delegation System" icon="users" href="/concepts/delegation">
+  Learn about sub-agent orchestration
+</Card>

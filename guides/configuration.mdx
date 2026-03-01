@@ -1,0 +1,317 @@
+---
+title: Configuration Management
+description: Managing models, providers, logging, and settings using the config engine
+icon: gear
+---
+
+Tiny Claw uses a **config engine** backed by SQLite to manage all configuration. The `tinyclaw config` command provides a CLI interface for managing models, providers, and logging settings.
+
+## Configuration Architecture
+
+<CardGroup cols={2}>
+  <Card title="Config Engine" icon="database">
+    SQLite-backed persistent storage for all settings. Located at `~/.tinyclaw/data/config.db`.
+  </Card>
+  
+  <Card title="Secrets Engine" icon="lock">
+    Separate encrypted storage for API keys and tokens. Uses AES-256-GCM encryption bound to your machine.
+  </Card>
+</CardGroup>
+
+The config engine stores **references** to secrets (key names), while actual secret values are encrypted in the secrets engine.
+
+## Model Configuration
+
+### Two-Tier Model Hierarchy
+
+Tiny Claw uses a two-tier provider system:
+
+<Tabs>
+  <Tab title="Built-in Provider">
+    **Ollama Cloud** — Free fallback, always available
+    
+    - Default provider configured during setup
+    - Used when primary provider is unavailable
+    - Model can be switched between built-in options
+  </Tab>
+  
+  <Tab title="Primary Provider">
+    **Plugin Provider** — Optional, overrides built-in as default
+    
+    - Set via provider plugins (OpenAI, Anthropic, etc.)
+    - Used as the default provider in the smart router
+    - Falls back to built-in if unavailable
+  </Tab>
+</Tabs>
+
+### View Current Model Configuration
+
+Display the active model configuration for both tiers:
+
+```bash
+tinyclaw config model
+```
+
+<CodeGroup>
+```bash Example Output
+Model Configuration
+
+Built-in (Ollama Cloud - always available as fallback)
+  Model    : qwen2.5:32b-instruct
+  Base URL : https://ollama.com/api
+
+Primary (overrides built-in as default provider)
+  Model    : gpt-4
+  Base URL : https://api.openai.com/v1
+
+The smart router uses Primary as the default provider.
+Built-in is the fallback if Primary becomes unavailable.
+```
+</CodeGroup>
+
+### List Available Built-in Models
+
+See all models available for the built-in Ollama Cloud provider:
+
+```bash
+tinyclaw config model list
+```
+
+<CodeGroup>
+```bash Example Output
+Available Built-in Models
+
+● qwen2.5:32b-instruct
+  Best all-around model - balanced speed and capability
+
+○ qwen2.5:14b-instruct
+  Faster, smaller model for simple tasks
+
+○ qwen2.5:72b-instruct
+  Largest model for complex reasoning
+
+Switch with: tinyclaw config model builtin <tag>
+```
+</CodeGroup>
+
+The `●` marker indicates the currently active model.
+
+### Switch Built-in Model
+
+Change the built-in provider's model:
+
+```bash
+tinyclaw config model builtin <tag>
+```
+
+<CodeGroup>
+```bash Example
+$ tinyclaw config model builtin qwen2.5:14b-instruct
+
+✔ Built-in model switched to qwen2.5:14b-instruct
+
+Restart Tiny Claw for changes to take effect.
+```
+</CodeGroup>
+
+Available tags:
+- `qwen2.5:32b-instruct` (default)
+- `qwen2.5:14b-instruct`
+- `qwen2.5:72b-instruct`
+
+<Warning>
+Changes require restarting Tiny Claw with `tinyclaw start` to take effect.
+</Warning>
+
+### View Primary Provider
+
+Check the current primary provider configuration:
+
+```bash
+tinyclaw config model primary
+```
+
+<Tabs>
+  <Tab title="With Primary Set">
+    ```bash
+    Primary Provider
+    
+      Model      : gpt-4
+      Base URL   : https://api.openai.com/v1
+      API Key    : stored as "provider:openai"
+    
+    Clear with: tinyclaw config model primary clear
+    ```
+  </Tab>
+  
+  <Tab title="No Primary Set">
+    ```bash
+    Primary Provider (not configured)
+    
+      No primary provider set. The built-in Ollama Cloud provider
+      is used as the default for the smart router.
+    
+      To add a primary provider, install a provider plugin and
+      ask Tiny Claw to set it as primary. You can also tell Tiny Claw:
+      "list my providers" or "set OpenAI as my primary provider"
+    ```
+  </Tab>
+</Tabs>
+
+### Clear Primary Provider
+
+Remove the primary provider override and revert to built-in:
+
+```bash
+tinyclaw config model primary clear
+```
+
+<CodeGroup>
+```bash Example
+$ tinyclaw config model primary clear
+
+✔ Primary provider cleared
+  Built-in will be used as the default provider.
+
+Restart Tiny Claw for changes to take effect.
+```
+</CodeGroup>
+
+## Logging Configuration
+
+### View Current Log Level
+
+Display the active log level:
+
+```bash
+tinyclaw config logging
+```
+
+<CodeGroup>
+```bash Example Output
+Log Level
+
+○ debug
+● info
+○ warn
+○ error
+○ silent
+
+Change with: tinyclaw config logging <level>
+Override per session with: tinyclaw start --verbose
+```
+</CodeGroup>
+
+### Set Log Level
+
+Change the persistent log level:
+
+```bash
+tinyclaw config logging <level>
+```
+
+Available levels:
+- `debug` — Show all logs including debug messages
+- `info` — Normal operational logs (default)
+- `warn` — Warnings and errors only
+- `error` — Errors only
+- `silent` — No logs
+
+<CodeGroup>
+```bash Example
+$ tinyclaw config logging debug
+
+✔ Log level set to debug
+
+Restart Tiny Claw for changes to take effect.
+```
+</CodeGroup>
+
+<Note>
+You can override the log level for a single session using `tinyclaw start --verbose` (sets level to `debug`).
+</Note>
+
+## Setting Providers Conversationally
+
+While the `config` command provides CLI access, you can also manage providers by **talking to your Tiny Claw agent**:
+
+<Steps>
+<Step title="Ask to list providers">
+  ```
+  "list my providers"
+  ```
+  
+  Your agent will show all registered providers (built-in + plugins) and their status.
+</Step>
+
+<Step title="Set primary provider">
+  ```
+  "set OpenAI as my primary provider"
+  ```
+  
+  The agent will update the config to use OpenAI as the default provider in the smart router.
+</Step>
+
+<Step title="Switch models">
+  ```
+  "switch to GPT-4o"
+  ```
+  
+  The agent can reconfigure provider models on the fly.
+</Step>
+</Steps>
+
+This conversational approach is more natural than CLI commands — your agent handles the config engine operations for you.
+
+## Data Directory
+
+All configuration is stored in the Tiny Claw data directory:
+
+```bash
+~/.tinyclaw/
+├── data/
+│   ├── config.db          # Config engine database
+│   ├── config.db-wal      # SQLite write-ahead log
+│   └── config.db-shm      # SQLite shared memory
+├── heartware/             # Soul seed and identity
+├── learning/              # Learned patterns
+└── audit/                 # Audit logs
+```
+
+You can override the data directory with the `TINYCLAW_DATA_DIR` environment variable:
+
+```bash
+export TINYCLAW_DATA_DIR="/path/to/custom/dir"
+tinyclaw config model
+```
+
+## Configuration Persistence
+
+All configuration changes are:
+
+- **Persisted immediately** to the SQLite database
+- **Validated** before being saved
+- **Require restart** to take effect (the agent loads config at boot)
+
+To apply changes:
+
+<Steps>
+<Step title="Make changes">
+  ```bash
+  tinyclaw config model builtin qwen2.5:72b-instruct
+  tinyclaw config logging debug
+  ```
+</Step>
+
+<Step title="Restart agent">
+  ```bash
+  tinyclaw start
+  ```
+  
+  The agent will load the new configuration on startup.
+</Step>
+</Steps>
+
+<Card title="Next Steps" icon="arrow-right" href="/guides/provider-management">
+  Learn how to manage LLM providers and switch models
+</Card>
